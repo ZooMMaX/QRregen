@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Copyright } from "lucide-react";
 import Stepper, { Step } from "./components/Stepper";
 import UploadStep from "./components/UploadStep";
 import TransformStep, { CropTransform, DEFAULT_CROP } from "./components/TransformStep";
@@ -400,8 +400,15 @@ export default function App() {
 
       {/* подвал */}
       <footer className="relative border-t border-line bg-panel/70">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-inksoft">
-          <span>Все вычисления локально — фото не покидает браузер</span>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-[11px] text-inksoft">
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 font-bold text-inkmid">
+              <Copyright className="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
+              ZooMMaX 2026
+            </span>
+            <span aria-hidden="true" className="text-line">·</span>
+            Все вычисления локально — фото не покидает браузер
+          </span>
           <span className="hidden md:inline">
             <kbd className="bg-paper border border-line rounded px-1.5 py-0.5">SPACE</kbd> верно ·{" "}
             <kbd className="bg-paper border border-line rounded px-1.5 py-0.5">X</kbd> инвертировать ·{" "}
