@@ -398,6 +398,75 @@ export default function App() {
         )}
       </main>
 
+      {/* FAQ */}
+      <section id="faq" className="relative w-full max-w-6xl mx-auto px-4 sm:px-6 pb-10">
+        <div className="card p-6 sm:p-8">
+          <h2 className="font-display text-lg font-bold tracking-tight">Частые вопросы</h2>
+          <p className="text-sm text-inkmid mt-1">
+            Как восстановить QR-код, какие снимки подходят и что делать, если код не читается.
+          </p>
+          <div className="mt-6 grid md:grid-cols-2 gap-x-10 gap-y-8 text-sm leading-relaxed">
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-semibold text-[15px]">Что такое QR-реставрация?</h3>
+                <p className="text-inkmid mt-1.5">
+                  QR-реставрация — это ручное восстановление повреждённого QR-кода по фотографии.
+                  Обычный сканер не может прочитать код, если его часть стёрта, выцвела, засвечена
+                  или перекрыта. Реставратор разбирает изображение на отдельные модули (пиксели),
+                  определяет их цвет и собирает код заново — модуль за модулем.
+                </p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-[15px]">Какие фото подходят для восстановления?</h3>
+                <p className="text-inkmid mt-1.5">
+                  Лучше всего работают чёткие снимки, где код занимает большую часть кадра, без сильных
+                  перспективных искажений и бликов. Подходят форматы JPG, PNG, WebP и BMP. Фото можно
+                  загрузить с диска, перетащить в окно или вставить из буфера обмена (Ctrl+V).
+                  Снимки разрешением до 25 МБ обрабатываются локально, в браузере.
+                </p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-[15px]">Что делать, если QR-код не находится?</h3>
+                <p className="text-inkmid mt-1.5">
+                  Проверьте, что код целиком попадает в кадр и занимает хотя бы треть изображения.
+                  Избегайте сильного наклона камеры и глянцевых бликов. Попробуйте сделать снимок при
+                  равномерном освещении. Если код всё равно не определяется, можно вручную обрезать
+                  кадр в шаге кадрирования или сгенерировать демонстрационный QR, чтобы попрактиковаться.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-semibold text-[15px]">Что такое модуль QR-кода?</h3>
+                <p className="text-inkmid mt-1.5">
+                  Модуль — это один чёрный или белый квадрат, из которых состоит QR-код. При реставрации
+                  приложение автоматически определяет размер модуля и строит сетку по всему коду.
+                  В шаге проверки вы можете подтвердить предполагаемый цвет каждого модуля или
+                  инвертировать его, если приложение ошиблось.
+                </p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-[15px]">Можно ли восстановить код без исходного фото?</h3>
+                <p className="text-inkmid mt-1.5">
+                  Восстановить QR можно только по изображению, на котором сохранилась большая часть кода.
+                  Реставрация дополняет повреждённые участки на основе геометрии кода, но не может
+                  «угадать» полностью утраченные данные. Поэтому чем меньше повреждений — тем выше
+                  шанс получить читаемый результат.
+                </p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-[15px]">Куда загружаются мои фотографии?</h3>
+                <p className="text-inkmid mt-1.5">
+                  Никуда. Все вычисления выполняются локально в вашем браузере: изображение не передаётся
+                  на сервер, не сохраняется и не доступно третьим лицам. Подробнее — в политике
+                  конфиденциальности.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* подвал */}
       <footer className="relative border-t border-line bg-panel/70">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 font-mono text-[11px] text-inksoft">
@@ -410,6 +479,8 @@ export default function App() {
             Все вычисления локально — фото не покидает браузер
           </span>
           <span className="inline-flex items-center gap-2.5">
+            <a href="#faq" className="hover:text-accent transition-colors">Частые вопросы</a>
+            <span aria-hidden="true" className="text-line">·</span>
             <a href="/privacy/" className="hover:text-accent transition-colors">Политика конфиденциальности</a>
             <span aria-hidden="true" className="text-line">·</span>
             <a href="/terms/" className="hover:text-accent transition-colors">Соглашение</a>
