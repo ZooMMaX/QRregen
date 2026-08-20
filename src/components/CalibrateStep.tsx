@@ -10,7 +10,10 @@ import {
   Move,
   Wand2,
   Grid3X3,
+  QrCode,
+  Loader2,
 } from "lucide-react";
+import { useLiveDecode, previewContent } from "../hooks/useLiveDecode";
 import {
   Analysis,
   Params,
@@ -23,10 +26,11 @@ import {
   hasLatticeWarp,
   renderWarpPreviewLattice,
   computeAutoOffsets,
+  buildAutoQrCanvas,
 } from "../lib/imaging";
 
 interface Props {
-  img: HTMLImageElement;
+  img: HTMLImageElement | HTMLCanvasElement;
   analysis: Analysis;
   params: Params;
   fileName: string;
@@ -74,6 +78,13 @@ export default function CalibrateStep({
     [lattice, n]
   );
   const active = hasLatticeWarp(eff);
+
+  /* живое декодирование: собираем QR из автоопределённых модулей и читаем его */
+  const decode = useLiveDecode(
+    () => buildAutoQrCanvas(analysis, params, eff),
+    [analysis, params, eff],
+    320
+  );
 
   const canvasH = Math.round((CANVAS_W * analysis.height) / analysis.width);
 
@@ -430,6 +441,52 @@ export default function CalibrateStep({
 
         {/* параметры */}
         <div className="flex flex-col gap-5">
+          {/* живое чтение QR */}
+          <div
+            className={[
+              "card p-5 transition-colors",
+              decode.state === "ok" ? "border-ok/50 bg-ok/[0.04]" : "",
+            ].join(" ")}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-wide uppercase text-inksoft">
+                <QrCode className={`w-4 h-4 ${decode.state === "ok" ? "text-ok" : "text-inksoft"}`} />
+                Живое чтение QR
+              </h3>
+              <span className="font-mono text-[10px] text-inksoft">по сетке + автоцветам</span>
+            </div>
+            <div className="mt-3">
+              {decode.state === "decoding" && (
+                <div className="flex items-center gap-2.5 text-[14px] font-semibold text-inkmid">
+                  <Loader2 className="w-4 h-4 animate-spin text-accent" />
+                  Читаем QR…
+                </div>
+              )}
+              {decode.state === "ok" && (
+                <div>
+                  <div className="flex items-center gap-2 text-[14px] font-bold text-ok">
+                    <CheckCircle2 className="w-5 h-5 shrink-0" />
+                    QR читается — сетка верна!
+                  </div>
+                  {decode.content && (
+                    <div className="mt-2 rounded-md bg-paper border border-line px-3 py-2 font-mono text-[12px] text-ink break-all leading-relaxed">
+                      {previewContent(decode.content, 90)}
+                    </div>
+                  )}
+                </div>
+              )}
+              {decode.state === "fail" && (
+                <div className="flex items-center gap-2.5 text-[14px] font-semibold text-inkmid">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-warn" />
+                  Пока не читается — уточните сетку или искажение
+                </div>
+              )}
+              {decode.state === "idle" && (
+                <div className="text-[13px] text-inksoft">Ожидание…</div>
+              )}
+            </div>
+          </div>
+
           <div className="card p-5">
             <h3 className="font-mono text-[11px] font-semibold tracking-wide uppercase text-inksoft">
               Автоопределение

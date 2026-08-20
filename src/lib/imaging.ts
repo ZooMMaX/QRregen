@@ -489,7 +489,7 @@ export function renderWarpPreviewLattice(
 
 /** Искажение цветного изображения сеткой; возвращает canvas рабочих размеров. */
 export function warpToCanvasLattice(
-  img: HTMLImageElement,
+  img: HTMLImageElement | HTMLCanvasElement,
   W: number,
   Hh: number,
   l: LatticeWarp,
@@ -702,4 +702,24 @@ export function computeAutoOffsets(a: Analysis, p: Params, n: number): Pt[] | nu
     }
   }
   return offs;
+}
+
+/**
+ * Собирает QR-код из автоопределённых (ещё не подтверждённых) модулей
+ * по текущим параметрам сетки и искажению — для живого декодирования.
+ */
+export function buildAutoQrCanvas(
+  a: Analysis,
+  p: Params,
+  l: LatticeWarp | null
+): HTMLCanvasElement {
+  let gray = a.gray;
+  if (hasLatticeWarp(l)) {
+    gray = warpGrayLattice(a.gray, a.width, a.height, l!, latticeRegion(a));
+  }
+  const eff: Analysis = { ...a, gray };
+  const s = sampleModules(eff, p);
+  // держим картинку для декодера в пределах ~300–550px
+  const scale = Math.max(2, Math.min(12, Math.round(480 / p.grid)));
+  return drawQrToCanvas(s.detected, p.grid, scale, 2);
 }
