@@ -1,214 +1,206 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Copy, Check, X, QrCode } from "lucide-react";
 import QRCode from "qrcode";
+import { Download, Copy, Check, X, QrCode } from "lucide-react";
 
 interface Props {
   content: string;
   onDismiss: () => void;
 }
 
-const SIZES = [
-  { id: "s", label: "S", scale: 6 },
-  { id: "m", label: "M", scale: 10 },
-  { id: "l", label: "L", scale: 16 },
-] as const;
-
-type SizeId = (typeof SIZES)[number]["id"];
 type Format = "jpeg" | "png";
+type SizeKey = "s" | "m" | "xl";
 
-function slug(s: string): string {
-  const clean = s
-    .toLowerCase()
-    .replace(/[^a-zа-яё0-9]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 18);
-  return clean || "qr";
-}
-
-async function copyText(t: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(t);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = t;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      ta.remove();
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
+const SIZES: Record<SizeKey, { label: string; hint: string; scale: number }> = {
+  s: { label: "S", hint: "компактный · 6px/модуль", scale: 6 },
+  m: { label: "M", hint: "средний · 10px/модуль", scale: 10 },
+  xl: { label: "XL", hint: "крупный · 16px/модуль", scale: 16 },
+};
 
 export default function LiveReadCard({ content, onDismiss }: Props) {
-  const qrRef = useRef<HTMLCanvasElement>(null);
-  const [size, setSize] = useState<SizeId>("m");
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [format, setFormat] = useState<Format>("jpeg");
+  const [size, setSize] = useState<SizeKey>("m");
   const [copied, setCopied] = useState(false);
+  const [meta, setMeta] = useState<{ version: number; bytes: number } | null>(null);
 
+  /* чистый QR из прочитанных данных */
   useEffect(() => {
-    const cv = qrRef.current;
+    const cv = canvasRef.current;
     if (!cv) return;
+    let alive = true;
     QRCode.toCanvas(cv, content, {
       errorCorrectionLevel: "M",
       margin: 2,
-      scale: 6,
-      color: { dark: "#000000", light: "#ffffff" },
-    }).catch(() => {
-      /* генерация не удалась — канвас останется пустым */
-    });
+      width: 704,
+      color: { dark: "#10151c", light: "#ffffff" },
+    })
+      .then(() => {
+        if (!alive) return;
+        try {
+          const created = QRCode.create(content, { errorCorrectionLevel: "M" });
+          setMeta({
+            version: created.version,
+            bytes: new TextEncoder().encode(content).length,
+          });
+        } catch {
+          setMeta(null);
+        }
+      })
+      .catch(() => setMeta(null));
+    return () => {
+      alive = false;
+    };
   }, [content]);
 
-  const doDownload = async () => {
-    const cv = document.createElement("canvas");
-    const scale = SIZES.find((s) => s.id === size)?.scale ?? 10;
-    try {
-      await QRCode.toCanvas(cv, content, {
-        errorCorrectionLevel: "M",
-        margin: 2,
-        scale,
-        color: { dark: "#000000", light: "#ffffff" },
-      });
-    } catch {
-      return;
-    }
-    const url =
-      format === "jpeg" ? cv.toDataURL("image/jpeg", 0.95) : cv.toDataURL("image/png");
+  const download = () => {
+    const src = canvasRef.current;
+    if (!src) return;
+    const sc = SIZES[size].scale;
+    const out = document.createElement("canvas");
+    out.width = src.width * sc;
+    out.height = src.height * sc;
+    const ctx = out.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(src, 0, 0, out.width, out.height);
+    const mime = format === "jpeg" ? "image/jpeg" : "image/png";
+    const url = out.toDataURL(mime, 0.95);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `qr-${slug(content)}.${format === "jpeg" ? "jpg" : "png"}`;
+    const slug =
+      content
+        .toLowerCase()
+        .replace(/[^a-zа-яё0-9]+/gi, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 28) || "qr";
+    a.download = `qr-${slug}.${format === "jpeg" ? "jpg" : "png"}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
 
-  const doCopy = async () => {
-    const ok = await copyText(content);
-    if (ok) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = content;
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+        setCopied(true);
+      } finally {
+        ta.remove();
+      }
     }
+    window.setTimeout(() => setCopied(false), 1800);
   };
 
   return (
-    <div
-      key={content}
-      className="fixed bottom-5 right-5 z-40 w-[330px] max-w-[calc(100vw-2rem)] toast-in"
-    >
-      <div className="card-hard overflow-hidden">
+    <div className="fixed bottom-5 right-4 left-4 sm:left-auto z-40 sm:w-[560px] max-w-[calc(100vw-2rem)]">
+      <div className="card-hard overflow-hidden toast-in">
         {/* шапка */}
-        <div className="flex items-center gap-2.5 bg-ink text-paper px-4 py-2.5">
-          <span className="led w-2 h-2 rounded-full bg-ok shrink-0" />
-          <span className="font-display text-[12px] font-bold tracking-wide uppercase">
-            QR прочитан
+        <div className="flex items-center gap-2.5 px-5 pt-4">
+          <span className="w-7 h-7 shrink-0 rounded-md bg-ok text-white grid place-items-center border border-ok">
+            <QrCode className="w-4 h-4" />
           </span>
-          <span className="ml-auto font-mono text-[10px] text-paper/60 tabular-nums">
-            {content.length} симв.
-          </span>
+          <div className="min-w-0 flex-1">
+            <div className="font-display text-[15px] font-bold tracking-tight leading-none">QR прочитан</div>
+            <div className="font-mono text-[11px] text-inksoft mt-1">
+              {meta ? `версия ${meta.version} · ${meta.bytes} байт` : "данные восстановлены"}
+            </div>
+          </div>
           <button
             onClick={onDismiss}
-            title="Скрыть"
-            className="ml-1 w-6 h-6 grid place-items-center rounded text-paper/60 hover:text-paper hover:bg-paper/10 transition-colors"
+            aria-label="Закрыть"
+            className="w-8 h-8 shrink-0 grid place-items-center rounded-md text-inksoft hover:text-danger hover:bg-danger/10 transition-colors"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-4">
-          <div className="flex gap-4">
-            {/* чистый QR */}
-            <div className="shrink-0">
-              <div className="checker rounded-md border-[1.5px] border-ink p-1.5">
-                <canvas ref={qrRef} className="block w-[124px] h-[124px]" />
-              </div>
-              <div className="mt-1.5 flex items-center justify-center gap-1 text-[10px] font-mono text-inksoft">
-                <QrCode className="w-3 h-3" />
-                чистый QR
-              </div>
+        <div className="p-5 pt-3.5 grid sm:grid-cols-[224px_1fr] gap-5 items-start">
+          {/* чистый QR */}
+          <div className="justify-self-center sm:justify-self-stretch">
+            <div className="checker rounded-md border border-line p-2.5 grid place-items-center">
+              <canvas ref={canvasRef} className="pixelated w-[196px] h-[196px]" />
             </div>
+            <p className="text-center font-mono text-[10px] text-inksoft mt-1.5">
+              чистый код · ECC M
+            </p>
+          </div>
 
-            {/* скачивание */}
-            <div className="flex-1 flex flex-col min-w-0">
-              <div className="text-[11px] font-semibold text-inkmid">Формат</div>
-              <div className="mt-1.5 grid grid-cols-2 rounded-md border border-line overflow-hidden w-fit">
+          {/* управление */}
+          <div className="min-w-0 flex flex-col gap-3.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex rounded-md border-[1.5px] border-ink overflow-hidden">
                 {(["jpeg", "png"] as Format[]).map((f) => (
                   <button
                     key={f}
                     onClick={() => setFormat(f)}
                     className={[
-                      "px-3 py-1 font-mono text-[11px] font-bold uppercase transition-colors",
-                      format === f
-                        ? "bg-ink text-paper"
-                        : "bg-panel text-inksoft hover:text-ink hover:bg-paper",
+                      "px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wide transition-colors",
+                      format === f ? "bg-ink text-paper" : "bg-panel text-inkmid hover:bg-paper",
                     ].join(" ")}
                   >
-                    {f === "jpeg" ? "jpg" : "png"}
+                    {f}
                   </button>
                 ))}
               </div>
-              <div className="text-[11px] font-semibold text-inkmid mt-2.5">Размер</div>
-              <div className="mt-1.5 grid grid-cols-3 rounded-md border border-line overflow-hidden w-fit">
-                {SIZES.map((s) => (
+              <div className="flex rounded-md border border-line overflow-hidden">
+                {(Object.keys(SIZES) as SizeKey[]).map((k) => (
                   <button
-                    key={s.id}
-                    onClick={() => setSize(s.id)}
+                    key={k}
+                    onClick={() => setSize(k)}
+                    title={SIZES[k].hint}
                     className={[
-                      "px-3 py-1 font-mono text-[11px] font-bold transition-colors",
-                      size === s.id
-                        ? "bg-ink text-paper"
-                        : "bg-panel text-inksoft hover:text-ink hover:bg-paper",
+                      "px-3 py-1.5 font-mono text-[11px] font-bold transition-colors",
+                      size === k ? "bg-accent text-white" : "bg-panel text-inkmid hover:bg-paper",
                     ].join(" ")}
                   >
-                    {s.label}
+                    {SIZES[k].label}
                   </button>
                 ))}
               </div>
-              <button
-                onClick={doDownload}
-                className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-md bg-accent text-white font-bold text-[13px] px-3 py-2.5 border-[1.5px] border-accent-deep transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_rgba(20,26,34,0.28)] hover:bg-accent-deep active:translate-y-0"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Скачать {format === "jpeg" ? "JPEG" : "PNG"}
-              </button>
             </div>
-          </div>
 
-          {/* данные */}
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-semibold text-inkmid">Данные</span>
-              <button
-                onClick={doCopy}
-                className={[
-                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-bold transition-all",
-                  copied
-                    ? "border-ok bg-ok/10 text-ok"
-                    : "border-line bg-panel text-inkmid hover:border-ink hover:text-ink",
-                ].join(" ")}
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3 h-3" strokeWidth={3} />
-                    Скопировано
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3 h-3" />
-                    Копировать
-                  </>
-                )}
-              </button>
-            </div>
-            <div className="max-h-24 overflow-auto rounded-md border border-line bg-paper px-3 py-2.5">
-              <span className="font-mono text-[12px] leading-relaxed break-all text-ink">
-                {content}
-              </span>
+            <button
+              onClick={download}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-accent text-white font-bold px-4 py-2.5 border-[1.5px] border-accent-deep transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_rgba(20,26,34,0.25)] hover:bg-accent-deep active:translate-y-0"
+            >
+              <Download className="w-4 h-4" />
+              Скачать {format === "jpeg" ? "JPEG" : "PNG"} · {SIZES[size].hint}
+            </button>
+
+            <div className="min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-inksoft">
+                  Данные · {content.length} симв.
+                </span>
+                <button
+                  onClick={copy}
+                  className={[
+                    "inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[11px] font-semibold transition-all",
+                    copied
+                      ? "border-ok/50 bg-ok/10 text-ok"
+                      : "border-line bg-panel text-inkmid hover:border-ink hover:text-ink",
+                  ].join(" ")}
+                >
+                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copied ? "Скопировано" : "Копировать"}
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={content}
+                rows={4}
+                onFocus={(e) => e.currentTarget.select()}
+                className="w-full resize-none rounded-md border border-line bg-paper px-3 py-2 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+              />
             </div>
           </div>
         </div>
