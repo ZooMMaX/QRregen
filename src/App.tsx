@@ -18,6 +18,7 @@ import {
   warpGrayLattice,
   warpToCanvasLattice,
 } from "./lib/imaging";
+import { Adjustments, DEFAULT_ADJUST, isAdjustActive, renderAdjustedSource } from "./lib/adjust";
 
 const STEP_ORDER: Step[] = ["upload", "crop", "calibrate", "review", "result"];
 
@@ -76,7 +77,7 @@ function Logo() {
 export default function App() {
   const [step, setStep] = useState<Step>("upload");
   const [maxStep, setMaxStep] = useState<Step>("upload");
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [img, setImg] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
   const [originalImg, setOriginalImg] = useState<HTMLImageElement | null>(null);
   const [imgName, setImgName] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -89,6 +90,8 @@ export default function App() {
   const cropRef = useRef<CropTransform>({ ...DEFAULT_CROP });
   /** сетка контрольных точек для коррекции искажений; null = без искажения */
   const [lattice, setLattice] = useState<LatticeWarp | null>(null);
+  /** коррекция цвета/шума загруженного фото (применяется на шаге кадрирования) */
+  const [adjust, setAdjust] = useState<Adjustments>({ ...DEFAULT_ADJUST });
   /** изображение, которое показывается на проверке (с учётом искажения) */
   const [displayImg, setDisplayImg] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
 
@@ -121,6 +124,7 @@ export default function App() {
     cropRef.current = { ...DEFAULT_CROP };
     setLattice(null);
     setDisplayImg(null);
+    setAdjust({ ...DEFAULT_ADJUST });
   }, []);
 
   /** проверка загруженного фото: ищем QR целиком, затем отправляем на кадрирование */
@@ -142,6 +146,7 @@ export default function App() {
       reviewRef.current = null;
       setLattice(null);
       setDisplayImg(null);
+      setAdjust({ ...DEFAULT_ADJUST });
       setStep("crop");
       showToast(`Код найден · ориентир ${a.grid}×${a.grid} модулей`);
       return true;
@@ -151,7 +156,7 @@ export default function App() {
 
   /** разбор уже обрезанного (или целого) кадра: анализ → калибровка */
   const ingestFrame = useCallback(
-    (image: HTMLImageElement): boolean => {
+    (image: HTMLImageElement | HTMLCanvasElement): boolean => {
       const a = analyzeImage(image);
       if (!a.bbox || a.moduleSize <= 0) {
         showToast("QR-код не найден в выбранном кадре");
@@ -172,9 +177,15 @@ export default function App() {
     [showToast]
   );
 
-  const handleSkipCrop = useCallback(() => {
-    if (originalImg) ingestFrame(originalImg);
-  }, [originalImg, ingestFrame]);
+  const handleSkipCrop = useCallback((): boolean => {
+    if (!originalImg) return false;
+    if (isAdjustActive(adjust)) {
+      return ingestFrame(
+        renderAdjustedSource(originalImg, originalImg.naturalWidth, originalImg.naturalHeight, adjust)
+      );
+    }
+    return ingestFrame(originalImg);
+  }, [originalImg, ingestFrame, adjust]);
 
   const enterReview = useCallback(() => {
     if (!analysis || !params || !img) return;
@@ -315,6 +326,9 @@ export default function App() {
             onChange={(t) => {
               cropRef.current = t;
             }}
+            adjust={adjust}
+            onAdjust={setAdjust}
+            onNotice={showToast}
             onDone={ingestFrame}
             onSkip={handleSkipCrop}
             onBack={() => setStep("upload")}

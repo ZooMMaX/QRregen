@@ -489,7 +489,7 @@ export function renderWarpPreviewLattice(
 
 /** Искажение цветного изображения сеткой; возвращает canvas рабочих размеров. */
 export function warpToCanvasLattice(
-  img: HTMLImageElement,
+  img: HTMLImageElement | HTMLCanvasElement,
   W: number,
   Hh: number,
   l: LatticeWarp,

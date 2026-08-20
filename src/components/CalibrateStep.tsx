@@ -26,7 +26,7 @@ import {
 } from "../lib/imaging";
 
 interface Props {
-  img: HTMLImageElement;
+  img: HTMLImageElement | HTMLCanvasElement;
   analysis: Analysis;
   params: Params;
   fileName: string;
