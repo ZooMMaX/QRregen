@@ -7,6 +7,34 @@ interface Props {
   onError: (msg: string) => void;
 }
 
+/**
+ * Ограничиваем исходник 2200px по длинной стороне: полноразмерные снимки
+ * (12+ МП) съедают десятки МБ памяти и приводят к перезагрузке вкладки
+ * на смартфонах, а для восстановления QR такого разрешения более чем достаточно.
+ */
+const MAX_SRC = 2200;
+function normalizeSource(img: HTMLImageElement, done: (ready: HTMLImageElement) => void): void {
+  const md = Math.max(img.naturalWidth, img.naturalHeight);
+  if (md <= MAX_SRC) {
+    done(img);
+    return;
+  }
+  const k = MAX_SRC / md;
+  const c = document.createElement("canvas");
+  c.width = Math.max(2, Math.round(img.naturalWidth * k));
+  c.height = Math.max(2, Math.round(img.naturalHeight * k));
+  const ctx = c.getContext("2d");
+  if (!ctx) {
+    done(img);
+    return;
+  }
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const out = new Image();
+  out.onload = () => done(out);
+  out.onerror = () => done(img);
+  out.src = c.toDataURL("image/jpeg", 0.92);
+}
+
 export default function UploadStep({ onImage, onError }: Props) {
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState<"file" | "demo" | null>(null);
@@ -31,9 +59,11 @@ export default function UploadStep({ onImage, onError }: Props) {
       const img = new Image();
       img.onload = () => {
         URL.revokeObjectURL(url);
-        const ok = onImage(img, file.name);
-        setBusy(null);
-        if (!ok) setError("QR-код не найден. Попробуйте снимок, где код занимает большую часть кадра.");
+        normalizeSource(img, (ready) => {
+          const ok = onImage(ready, file.name);
+          setBusy(null);
+          if (!ok) setError("QR-код не найден. Попробуйте снимок, где код занимает большую часть кадра.");
+        });
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
