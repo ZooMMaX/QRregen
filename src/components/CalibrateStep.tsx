@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { ArrowRight, Crosshair, FileImage, RefreshCw, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Crosshair, FileImage, RefreshCw, AlertTriangle, CheckCircle2, Crop } from "lucide-react";
 import { Analysis, Params, qrVersion } from "../lib/imaging";
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
   onStart: () => void;
   onRestart: () => void;
   onAutoReset: () => void;
+  onBackToCrop: () => void;
 }
 
 const CANVAS_W = 720;
@@ -24,6 +25,7 @@ export default function CalibrateStep({
   onStart,
   onRestart,
   onAutoReset,
+  onBackToCrop,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bbox = analysis.bbox!;
@@ -223,7 +225,15 @@ export default function CalibrateStep({
             </button>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={onBackToCrop}
+              title="Вернуться к кадрированию фото"
+              className="inline-flex items-center gap-1.5 rounded-md border-[1.5px] border-line bg-panel px-4 py-3 text-sm font-semibold text-inkmid transition-all hover:border-ink hover:text-ink"
+            >
+              <Crop className="w-3.5 h-3.5" />
+              Изменить кадр
+            </button>
             <button
               onClick={onRestart}
               className="rounded-md border-[1.5px] border-line bg-panel px-4 py-3 text-sm font-semibold text-inkmid transition-all hover:border-ink hover:text-ink"

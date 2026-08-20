@@ -1,0 +1,476 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  RotateCcw,
+  Maximize2,
+  Undo2,
+  ArrowRight,
+  ArrowLeft,
+  Move,
+  Loader2,
+  Ruler,
+} from "lucide-react";
+
+export type AspectId = "1:1" | "4:3" | "3:4" | "16:9";
+
+export interface CropTransform {
+  panX: number;
+  panY: number;
+  zoom: number;
+  rotStep: number;
+  fineRot: number;
+  aspect: AspectId;
+}
+
+export const DEFAULT_CROP: CropTransform = {
+  panX: 0,
+  panY: 0,
+  zoom: 1,
+  rotStep: 0,
+  fineRot: 0,
+  aspect: "1:1",
+};
+
+const VW = 780;
+const VH = 560;
+const CAP = 2400;
+const ASPECTS: Record<AspectId, [number, number]> = {
+  "1:1": [1, 1],
+  "4:3": [4, 3],
+  "3:4": [3, 4],
+  "16:9": [16, 9],
+};
+
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+const zoomToSlider = (z: number) => (100 * Math.log(z / 0.2)) / Math.log(40);
+const sliderToZoom = (v: number) => 0.2 * Math.pow(40, v / 100);
+
+interface Props {
+  img: HTMLImageElement;
+  fileName: string;
+  initial: CropTransform;
+  onChange: (t: CropTransform) => void;
+  /** возвращает true, если кадр принят (в кадре найден QR) */
+  onDone: (cropped: HTMLImageElement) => boolean;
+  onSkip: () => void;
+  onBack: () => void;
+}
+
+export default function TransformStep({
+  img,
+  fileName,
+  initial,
+  onChange,
+  onDone,
+  onSkip,
+  onBack,
+}: Props) {
+  const [t, setT] = useState<CropTransform>(initial);
+  const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastPt = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    onChange(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t]);
+
+  const [aw, ah] = ASPECTS[t.aspect];
+  const maxW = VW * 0.86;
+  const maxH = VH * 0.86;
+  let fw = maxW;
+  let fh = (fw * ah) / aw;
+  if (fh > maxH) {
+    fh = maxH;
+    fw = (fh * aw) / ah;
+  }
+  const cx0 = (VW - fw) / 2;
+  const cy0 = (VH - fh) / 2;
+
+  const fitScale = Math.min(VW / img.naturalWidth, VH / img.naturalHeight);
+  const S = fitScale * t.zoom;
+  const rotDeg = t.rotStep + t.fineRot;
+  const rot = (rotDeg * Math.PI) / 180;
+
+  // размер выходного кадра в пикселях исходного фото
+  const outK0 = 1 / S;
+  let ow = fw * outK0;
+  let oh = fh * outK0;
+  let outK = outK0;
+  const mm = Math.max(ow, oh);
+  if (mm > CAP) {
+    const k = CAP / mm;
+    ow *= k;
+    oh *= k;
+    outK *= k;
+  }
+
+  /* ---------- отрисовка ---------- */
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, VW, VH);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(cx0, cy0, fw, fh);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx0, cy0, fw, fh);
+    ctx.clip();
+    ctx.translate(VW / 2 + t.panX, VH / 2 + t.panY);
+    ctx.rotate(rot);
+    const w = img.naturalWidth * S;
+    const h = img.naturalHeight * S;
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+
+    // затемнение вне рамки
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, VW, VH);
+    ctx.rect(cx0, cy0, fw, fh);
+    ctx.fillStyle = "rgba(20,26,34,0.55)";
+    ctx.fill("evenodd");
+    ctx.restore();
+
+    // сетка третей
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 3; i++) {
+      ctx.moveTo(cx0 + (fw * i) / 3, cy0);
+      ctx.lineTo(cx0 + (fw * i) / 3, cy0 + fh);
+      ctx.moveTo(cx0, cy0 + (fh * i) / 3);
+      ctx.lineTo(cx0 + fw, cy0 + (fh * i) / 3);
+    }
+    ctx.stroke();
+
+    // рамка + уголки
+    ctx.strokeStyle = "#ff4d00";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx0, cy0, fw, fh);
+    const L = 20;
+    ctx.lineWidth = 4.5;
+    ctx.lineCap = "square";
+    const corners: [number, number, number, number][] = [
+      [cx0, cy0, 1, 1],
+      [cx0 + fw, cy0, -1, 1],
+      [cx0, cy0 + fh, 1, -1],
+      [cx0 + fw, cy0 + fh, -1, -1],
+    ];
+    for (const [x, y, dx, dy] of corners) {
+      ctx.beginPath();
+      ctx.moveTo(x + dx * L, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + dy * L);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt";
+  }, [img, t, cx0, cy0, fw, fh, S, rot]);
+
+  /* ---------- колесо мыши ---------- */
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0016);
+      setT((prev) => ({ ...prev, zoom: clamp(prev.zoom * factor, 0.2, 8) }));
+    };
+    cv.addEventListener("wheel", onWheel, { passive: false });
+    return () => cv.removeEventListener("wheel", onWheel);
+  }, []);
+
+  /* ---------- клавиатура ---------- */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) return;
+      const P = 16;
+      if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        setT((p) => ({ ...p, panX: p.panX + P }));
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        setT((p) => ({ ...p, panX: p.panX - P }));
+      } else if (e.code === "ArrowUp") {
+        e.preventDefault();
+        setT((p) => ({ ...p, panY: p.panY + P }));
+      } else if (e.code === "ArrowDown") {
+        e.preventDefault();
+        setT((p) => ({ ...p, panY: p.panY - P }));
+      } else if (e.code === "Equal" || e.code === "NumpadAdd") {
+        e.preventDefault();
+        setT((p) => ({ ...p, zoom: clamp(p.zoom * 1.15, 0.2, 8) }));
+      } else if (e.code === "Minus" || e.code === "NumpadSubtract") {
+        e.preventDefault();
+        setT((p) => ({ ...p, zoom: clamp(p.zoom / 1.15, 0.2, 8) }));
+      } else if (e.code === "BracketLeft") {
+        e.preventDefault();
+        setT((p) => ({ ...p, rotStep: p.rotStep - 90 }));
+      } else if (e.code === "BracketRight") {
+        e.preventDefault();
+        setT((p) => ({ ...p, rotStep: p.rotStep + 90 }));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /* ---------- перетаскивание ---------- */
+  const toCanvas = (e: React.PointerEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) * VW) / rect.width,
+      y: ((e.clientY - rect.top) * VH) / rect.height,
+    };
+  };
+
+  const apply = () => {
+    setBusy(true);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(2, Math.round(ow));
+    canvas.height = Math.max(2, Math.round(oh));
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(canvas.width / 2 + t.panX * outK, canvas.height / 2 + t.panY * outK);
+    ctx.rotate(rot);
+    ctx.scale(S * outK, S * outK);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    ctx.restore();
+    const out = new Image();
+    out.onload = () => {
+      const ok = onDone(out);
+      if (!ok) setBusy(false);
+    };
+    out.onerror = () => setBusy(false);
+    out.src = canvas.toDataURL("image/png");
+  };
+
+  const totalAngle = ((rotDeg % 360) + 360) % 360;
+
+  return (
+    <section className="animate-rise">
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+        <div>
+          <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight">Кадрирование фото</h2>
+          <p className="text-inkmid text-sm mt-1 max-w-xl">
+            Сдвиньте, масштабируйте и обрежьте снимок так, чтобы QR-код целиком попал в оранжевую рамку.
+            Всё лишнее будет отрезано.
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-2 font-mono text-xs text-inkmid bg-panel border border-line rounded px-2.5 py-1.5">
+          <Ruler className="w-3.5 h-3.5 text-accent" />
+          {img.naturalWidth}×{img.naturalHeight}px · {fileName}
+        </span>
+      </div>
+
+      <div className="grid lg:grid-cols-[1.5fr_1fr] gap-6 items-start">
+        {/* ------- холст ------- */}
+        <div className="card-hard overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-line bg-panel">
+            <span className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-wide text-inksoft uppercase">
+              <Move className={`w-3.5 h-3.5 ${dragging ? "text-accent" : "text-inksoft"}`} />
+              Тяните фото · колесо — масштаб
+            </span>
+            <div className="flex items-center gap-1.5">
+              <div className="flex rounded-md border border-line overflow-hidden mr-1">
+                {(Object.keys(ASPECTS) as AspectId[]).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => setT((p) => ({ ...p, aspect: a }))}
+                    className={[
+                      "px-2.5 py-1 font-mono text-[11px] font-semibold transition-colors",
+                      t.aspect === a
+                        ? "bg-ink text-paper"
+                        : "bg-panel text-inksoft hover:text-ink hover:bg-paper",
+                    ].join(" ")}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setT((p) => ({ ...p, panX: 0, panY: 0, zoom: 1, fineRot: 0 }))}
+                title="Вписать фото (0)"
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 py-1.5 text-[12px] font-semibold text-inkmid transition-all hover:border-ink hover:text-ink"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                Вписать
+              </button>
+              <button
+                onClick={() => setT({ ...DEFAULT_CROP })}
+                title="Сбросить всё"
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 py-1.5 text-[12px] font-semibold text-inkmid transition-all hover:border-ink hover:text-ink"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+                Сброс
+              </button>
+            </div>
+          </div>
+          <canvas
+            ref={canvasRef}
+            width={VW}
+            height={VH}
+            className={[
+              "w-full h-auto touch-none select-none",
+              dragging ? "cursor-grabbing" : "cursor-grab",
+            ].join(" ")}
+            onPointerDown={(e) => {
+              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              lastPt.current = toCanvas(e);
+              setDragging(true);
+            }}
+            onPointerMove={(e) => {
+              if (!lastPt.current) return;
+              const p = toCanvas(e);
+              const dx = p.x - lastPt.current.x;
+              const dy = p.y - lastPt.current.y;
+              lastPt.current = p;
+              setT((prev) => ({ ...prev, panX: prev.panX + dx, panY: prev.panY + dy }));
+            }}
+            onPointerUp={() => {
+              lastPt.current = null;
+              setDragging(false);
+            }}
+            onPointerCancel={() => {
+              lastPt.current = null;
+              setDragging(false);
+            }}
+          />
+        </div>
+
+        {/* ------- панель управления ------- */}
+        <div className="flex flex-col gap-5">
+          <div className="card p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-mono text-[11px] font-semibold tracking-wide uppercase text-inksoft">
+                Масштаб
+              </h3>
+              <span className="font-mono text-[13px] font-bold bg-paper border border-line rounded px-1.5 py-0.5">
+                {Math.round(t.zoom * 100)}%
+              </span>
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={() => setT((p) => ({ ...p, zoom: clamp(p.zoom / 1.25, 0.2, 8) }))}
+                title="Уменьшить (−)"
+                className="w-9 h-9 shrink-0 grid place-items-center rounded-md border-[1.5px] border-line bg-panel text-inkmid transition-all hover:border-ink hover:text-ink hover:-translate-y-0.5"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={0.5}
+                value={zoomToSlider(t.zoom)}
+                onChange={(e) => setT((p) => ({ ...p, zoom: sliderToZoom(Number(e.target.value)) }))}
+                className="w-full cursor-pointer"
+              />
+              <button
+                onClick={() => setT((p) => ({ ...p, zoom: clamp(p.zoom * 1.25, 0.2, 8) }))}
+                title="Увеличить (+)"
+                className="w-9 h-9 shrink-0 grid place-items-center rounded-md border-[1.5px] border-line bg-panel text-inkmid transition-all hover:border-ink hover:text-ink hover:-translate-y-0.5"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-mono text-[11px] font-semibold tracking-wide uppercase text-inksoft">
+                Поворот
+              </h3>
+              <span className="font-mono text-[13px] font-bold bg-paper border border-line rounded px-1.5 py-0.5">
+                {totalAngle.toFixed(1)}°
+              </span>
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={() => setT((p) => ({ ...p, rotStep: p.rotStep - 90 }))}
+                title="Повернуть на −90° ([)"
+                className="w-9 h-9 shrink-0 grid place-items-center rounded-md border-[1.5px] border-line bg-panel text-inkmid transition-all hover:border-ink hover:text-ink hover:-translate-y-0.5"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+              <div className="flex-1">
+                <input
+                  type="range"
+                  min={-20}
+                  max={20}
+                  step={0.1}
+                  value={t.fineRot}
+                  onChange={(e) => setT((p) => ({ ...p, fineRot: Number(e.target.value) }))}
+                  className="w-full cursor-pointer"
+                />
+                <div className="flex justify-between font-mono text-[10px] text-inksoft mt-0.5">
+                  <span>точный наклон −20°</span>
+                  <span>+20°</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setT((p) => ({ ...p, rotStep: p.rotStep + 90 }))}
+                title="Повернуть на +90° (])"
+                className="w-9 h-9 shrink-0 grid place-items-center rounded-md border-[1.5px] border-line bg-panel text-inkmid transition-all hover:border-ink hover:text-ink hover:-translate-y-0.5"
+              >
+                <RotateCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <h3 className="font-mono text-[11px] font-semibold tracking-wide uppercase text-inksoft">
+              Итоговый кадр
+            </h3>
+            <div className="mt-3 flex items-center justify-between rounded-md bg-paper border border-line px-3.5 py-3">
+              <span className="text-[13px] font-medium text-inkmid">Разрешение на выходе</span>
+              <span className="font-mono text-sm font-bold tabular-nums">
+                ≈ {Math.round(ow)} × {Math.round(oh)} px
+              </span>
+            </div>
+            <p className="mt-3 text-[12px] text-inksoft leading-relaxed">
+              Точность восстановления выше, когда код занимает почти всю рамку, а края модулей не обрезаны.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2.5">
+            <button
+              onClick={apply}
+              disabled={busy}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-accent text-white font-bold px-5 py-3.5 border-[1.5px] border-accent-deep transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[5px_5px_0_rgba(20,26,34,0.3)] hover:bg-accent-deep active:translate-y-0 disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+              {busy ? "Обрезаем…" : "Обрезать и к сетке"}
+            </button>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                onClick={onSkip}
+                disabled={busy}
+                className="rounded-md border-[1.5px] border-line bg-panel px-4 py-2.5 text-sm font-semibold text-inkmid transition-all hover:border-ink hover:text-ink disabled:opacity-50"
+              >
+                Взять фото целиком
+              </button>
+              <button
+                onClick={onBack}
+                disabled={busy}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border-[1.5px] border-line bg-panel px-4 py-2.5 text-sm font-semibold text-inkmid transition-all hover:border-ink hover:text-ink disabled:opacity-50"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />К фото
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

@@ -1,9 +1,10 @@
-import { Camera, LayoutGrid, ScanLine, QrCode, Check } from "lucide-react";
+import { Camera, Crop, LayoutGrid, ScanLine, QrCode, Check } from "lucide-react";
 
-export type Step = "upload" | "calibrate" | "review" | "result";
+export type Step = "upload" | "crop" | "calibrate" | "review" | "result";
 
 const STEPS: { id: Step; label: string; icon: typeof Camera }[] = [
   { id: "upload", label: "Фото", icon: Camera },
+  { id: "crop", label: "Кадрирование", icon: Crop },
   { id: "calibrate", label: "Сетка", icon: LayoutGrid },
   { id: "review", label: "Проверка", icon: ScanLine },
   { id: "result", label: "Результат", icon: QrCode },

@@ -2,15 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import Stepper, { Step } from "./components/Stepper";
 import UploadStep from "./components/UploadStep";
+import TransformStep, { CropTransform, DEFAULT_CROP } from "./components/TransformStep";
 import CalibrateStep from "./components/CalibrateStep";
 import ReviewStep, { ReviewState } from "./components/ReviewStep";
 import ResultStep from "./components/ResultStep";
 import { Analysis, Params, Sampled, analyzeImage, sampleModules } from "./lib/imaging";
 
-const STEP_ORDER: Step[] = ["upload", "calibrate", "review", "result"];
+const STEP_ORDER: Step[] = ["upload", "crop", "calibrate", "review", "result"];
 
 const STATUS: Record<Step, string> = {
   upload: "ожидание фото",
+  crop: "кадрирование снимка",
   calibrate: "калибровка сетки",
   review: "проверка модулей",
   result: "код восстановлен",
@@ -18,6 +20,7 @@ const STATUS: Record<Step, string> = {
 
 const LED: Record<Step, string> = {
   upload: "bg-paper/50",
+  crop: "bg-teal",
   calibrate: "bg-accent",
   review: "bg-warn",
   result: "bg-ok",
@@ -63,6 +66,7 @@ export default function App() {
   const [step, setStep] = useState<Step>("upload");
   const [maxStep, setMaxStep] = useState<Step>("upload");
   const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [originalImg, setOriginalImg] = useState<HTMLImageElement | null>(null);
   const [imgName, setImgName] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [params, setParams] = useState<Params | null>(null);
@@ -71,6 +75,7 @@ export default function App() {
   const [samplingKey, setSamplingKey] = useState("");
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
   const reviewRef = useRef<ReviewState | null>(null);
+  const cropRef = useRef<CropTransform>({ ...DEFAULT_CROP });
 
   useEffect(() => {
     const cur = STEP_ORDER.indexOf(step);
@@ -90,6 +95,7 @@ export default function App() {
     setStep("upload");
     setMaxStep("upload");
     setImg(null);
+    setOriginalImg(null);
     setImgName("");
     setAnalysis(null);
     setParams(null);
@@ -97,8 +103,10 @@ export default function App() {
     setFinalColors(null);
     setSamplingKey("");
     reviewRef.current = null;
+    cropRef.current = { ...DEFAULT_CROP };
   }, []);
 
+  /** проверка загруженного фото: ищем QR целиком, затем отправляем на кадрирование */
   const handleImage = useCallback(
     (image: HTMLImageElement, name: string): boolean => {
       const a = analyzeImage(image);
@@ -106,8 +114,31 @@ export default function App() {
         showToast("Не удалось найти QR-код на фото");
         return false;
       }
+      setOriginalImg(image);
       setImg(image);
       setImgName(name);
+      setAnalysis(null);
+      setParams(null);
+      setSampled(null);
+      setFinalColors(null);
+      setSamplingKey("");
+      reviewRef.current = null;
+      setStep("crop");
+      showToast(`Код найден · ориентир ${a.grid}×${a.grid} модулей`);
+      return true;
+    },
+    [showToast]
+  );
+
+  /** разбор уже обрезанного (или целого) кадра: анализ → калибровка */
+  const ingestFrame = useCallback(
+    (image: HTMLImageElement): boolean => {
+      const a = analyzeImage(image);
+      if (!a.bbox || a.moduleSize <= 0) {
+        showToast("QR-код не найден в выбранном кадре");
+        return false;
+      }
+      setImg(image);
       setAnalysis(a);
       setParams({ moduleSize: a.moduleSize, grid: a.grid, originX: a.originX, originY: a.originY });
       setSampled(null);
@@ -119,6 +150,10 @@ export default function App() {
     },
     [showToast]
   );
+
+  const handleSkipCrop = useCallback(() => {
+    if (originalImg) ingestFrame(originalImg);
+  }, [originalImg, ingestFrame]);
 
   const enterReview = useCallback(() => {
     if (!analysis || !params) return;
@@ -149,6 +184,10 @@ export default function App() {
         resetAll();
         return;
       }
+      if (s === "crop" && originalImg) {
+        setStep("crop");
+        return;
+      }
       if (s === "calibrate" && img && analysis) {
         setStep("calibrate");
         return;
@@ -170,7 +209,7 @@ export default function App() {
         }
       }
     },
-    [step, img, analysis, params, finalColors, resetAll, enterReview]
+    [step, img, originalImg, analysis, params, finalColors, resetAll, enterReview]
   );
 
   const stepIdx = STEP_ORDER.indexOf(step);
@@ -204,7 +243,7 @@ export default function App() {
               {STATUS[step]}
             </span>
             <span className="font-mono text-[11px] font-semibold bg-paper/10 border border-paper/15 rounded px-2 py-1 tabular-nums">
-              шаг {stepIdx + 1}/4
+              шаг {stepIdx + 1}/{STEP_ORDER.length}
             </span>
           </div>
         </div>
@@ -226,6 +265,20 @@ export default function App() {
           />
         )}
 
+        {step === "crop" && originalImg && (
+          <TransformStep
+            img={originalImg}
+            fileName={imgName}
+            initial={cropRef.current}
+            onChange={(t) => {
+              cropRef.current = t;
+            }}
+            onDone={ingestFrame}
+            onSkip={handleSkipCrop}
+            onBack={() => setStep("upload")}
+          />
+        )}
+
         {step === "calibrate" && img && analysis && params && (
           <CalibrateStep
             img={img}
@@ -235,6 +288,7 @@ export default function App() {
             onParams={setParams}
             onStart={enterReview}
             onRestart={resetAll}
+            onBackToCrop={() => setStep("crop")}
             onAutoReset={() => {
               setParams({
                 moduleSize: analysis.moduleSize,
