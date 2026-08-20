@@ -14,6 +14,9 @@ import {
   SlidersHorizontal,
   Sparkles,
   Eraser,
+  QrCode,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Adjustments,
@@ -23,6 +26,7 @@ import {
   computeAutoAdjust,
   histogramLum,
 } from "../lib/adjust";
+import { useLiveDecode, previewContent } from "../hooks/useLiveDecode";
 
 export type AspectId = "1:1" | "4:3" | "3:4" | "16:9";
 
@@ -146,6 +150,38 @@ export default function TransformStep({
     oh *= k;
     outK *= k;
   }
+
+  /* ---------- живое декодирование: читаем QR из текущего кадра с обработкой ---------- */
+  const decode = useLiveDecode(
+    () => {
+      const maxD = 480;
+      const k = Math.min(1, maxD / Math.max(ow, oh));
+      const w = Math.max(2, Math.round(ow * k));
+      const h = Math.max(2, Math.round(oh * k));
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      const kk = outK * k;
+      ctx.save();
+      ctx.translate(w / 2 + t.panX * kk, h / 2 + t.panY * kk);
+      ctx.rotate(rot);
+      ctx.scale(S * kk, S * kk);
+      ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+      ctx.restore();
+      if (isAdjustActive(adjust)) {
+        const id = ctx.getImageData(0, 0, w, h);
+        applyAdjust(id.data, w, h, adjust);
+        ctx.putImageData(id, 0, 0);
+      }
+      return c;
+    },
+    [img, adjust, t],
+    300
+  );
 
   /* ---------- отрисовка: офскрин-рендер → обработка → композиция ---------- */
   useEffect(() => {
@@ -454,6 +490,48 @@ export default function TransformStep({
 
         {/* ------- панель управления ------- */}
         <div className="flex flex-col gap-5">
+          {/* живое чтение QR */}
+          <div
+            className={[
+              "card flex items-center gap-3 px-4 py-3 transition-colors",
+              decode.state === "ok" ? "border-ok/50 bg-ok/[0.05]" : "",
+            ].join(" ")}
+          >
+            <span className="shrink-0">
+              {decode.state === "decoding" ? (
+                <Loader2 className="w-5 h-5 animate-spin text-accent" />
+              ) : decode.state === "ok" ? (
+                <CheckCircle2 className="w-5 h-5 text-ok" />
+              ) : decode.state === "fail" ? (
+                <AlertTriangle className="w-5 h-5 text-warn" />
+              ) : (
+                <QrCode className="w-5 h-5 text-inksoft" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div
+                className={[
+                  "text-[13px] font-bold leading-tight",
+                  decode.state === "ok"
+                    ? "text-ok"
+                    : decode.state === "fail"
+                      ? "text-inkmid"
+                      : "text-inkmid",
+                ].join(" ")}
+              >
+                {decode.state === "decoding" && "Читаем QR…"}
+                {decode.state === "ok" && "QR читается!"}
+                {decode.state === "fail" && "QR пока не читается"}
+                {decode.state === "idle" && "Живое чтение QR"}
+              </div>
+              <div className="truncate font-mono text-[11px] text-inksoft leading-tight">
+                {decode.state === "ok" && decode.content
+                  ? previewContent(decode.content, 60)
+                  : "по кадру с обработкой"}
+              </div>
+            </div>
+          </div>
+
           <div className="card p-5">
             <div className="flex items-center justify-between">
               <h3 className="font-mono text-[11px] font-semibold tracking-wide uppercase text-inksoft">
