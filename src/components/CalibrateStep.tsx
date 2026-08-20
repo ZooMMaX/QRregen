@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef } from "react";
-import { ArrowRight, Crosshair, FileImage, RefreshCw, AlertTriangle, CheckCircle2, Crop } from "lucide-react";
-import { Analysis, Params, qrVersion } from "../lib/imaging";
+import { ArrowRight, Crosshair, FileImage, RefreshCw, AlertTriangle, CheckCircle2, Crop, Move } from "lucide-react";
+import { Analysis, Params, Pt, qrVersion, renderWarpPreview } from "../lib/imaging";
 
 interface Props {
   img: HTMLImageElement;
   analysis: Analysis;
   params: Params;
   fileName: string;
+  warp: Pt[] | null;
+  onWarp: (p: Pt[] | null) => void;
   onParams: (p: Params) => void;
   onStart: () => void;
   onRestart: () => void;
@@ -15,12 +17,16 @@ interface Props {
 }
 
 const CANVAS_W = 720;
+const PREVIEW_W = 420;
+const HANDLE_R = 18; // радиус захвата маркера в px канваса
 
 export default function CalibrateStep({
   img,
   analysis,
   params,
   fileName,
+  warp,
+  onWarp,
   onParams,
   onStart,
   onRestart,
@@ -28,18 +34,71 @@ export default function CalibrateStep({
   onBackToCrop,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const offRef = useRef<HTMLCanvasElement | null>(null);
+  const baseRef = useRef<{ data: Uint8ClampedArray; w: number; h: number } | null>(null);
+  const dragRef = useRef(-1);
+  const rafRef = useRef(0);
+  const pendingRef = useRef<Pt[] | null>(null);
   const bbox = analysis.bbox!;
 
   const canvasH = Math.round((CANVAS_W * analysis.height) / analysis.width);
 
+  /** исходный четырёхугольник — углы найденной области кода */
+  const sq: Pt[] = useMemo(
+    () => [
+      { x: bbox.x, y: bbox.y },
+      { x: bbox.x + bbox.w, y: bbox.y },
+      { x: bbox.x + bbox.w, y: bbox.y + bbox.h },
+      { x: bbox.x, y: bbox.y + bbox.h },
+    ],
+    [bbox]
+  );
+  const warpActive = warp !== null;
+
+  /* снимок RGBA рабочих размеров — источник для живого искажения */
+  useEffect(() => {
+    const cv = document.createElement("canvas");
+    cv.width = analysis.width;
+    cv.height = analysis.height;
+    const c2 = cv.getContext("2d", { willReadFrequently: true })!;
+    c2.drawImage(img, 0, 0, analysis.width, analysis.height);
+    baseRef.current = {
+      data: c2.getImageData(0, 0, analysis.width, analysis.height).data,
+      w: analysis.width,
+      h: analysis.height,
+    };
+    offRef.current = null;
+  }, [img, analysis.width, analysis.height]);
+
+  /* главная отрисовка: фото (с искажением) + сетка + маркеры углов */
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
     const ctx = cv.getContext("2d");
     if (!ctx) return;
     const s = CANVAS_W / analysis.width;
+    const dq = warp ?? sq;
     ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.drawImage(img, 0, 0, analysis.width, analysis.height, 0, 0, CANVAS_W, cv.height);
+
+    if (warpActive && baseRef.current) {
+      const pw = PREVIEW_W;
+      const ph = Math.max(1, Math.round((pw * analysis.height) / analysis.width));
+      let off = offRef.current;
+      if (!off || off.width !== pw || off.height !== ph) {
+        off = document.createElement("canvas");
+        off.width = pw;
+        off.height = ph;
+        offRef.current = off;
+      }
+      const oc = off.getContext("2d")!;
+      const outImg = oc.createImageData(pw, ph);
+      renderWarpPreview(baseRef.current.data, analysis.width, analysis.height, sq, dq, outImg.data, pw, ph);
+      oc.putImageData(outImg, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(off, 0, 0, cv.width, cv.height);
+    } else {
+      ctx.drawImage(img, 0, 0, analysis.width, analysis.height, 0, 0, CANVAS_W, cv.height);
+    }
 
     // сетка
     ctx.lineWidth = 1;
@@ -77,7 +136,95 @@ export default function CalibrateStep({
     ctx.moveTo(ox, oy - 12);
     ctx.lineTo(ox, oy + 12);
     ctx.stroke();
-  }, [img, analysis, params, bbox, canvasH]);
+
+    // контур искажения + угловые маркеры
+    ctx.strokeStyle = "rgba(255,77,0,0.95)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    dq.forEach((p, i) => {
+      const x = p.x * s;
+      const y = p.y * s;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.stroke();
+    dq.forEach((p) => {
+      const x = p.x * s;
+      const y = p.y * s;
+      ctx.fillStyle = "#ff4d00";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(x - 6, y - 6, 12, 12);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }, [img, analysis, params, bbox, canvasH, warp, warpActive, sq]);
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  /* ---------- взаимодействие с угловыми маркерами ---------- */
+  const toCanvas = (clientX: number, clientY: number): Pt => {
+    const cv = canvasRef.current!;
+    const rect = cv.getBoundingClientRect();
+    return {
+      x: ((clientX - rect.left) / rect.width) * CANVAS_W,
+      y: ((clientY - rect.top) / rect.height) * canvasH,
+    };
+  };
+
+  const findHandle = (cp: Pt): number => {
+    const s = CANVAS_W / analysis.width;
+    const dq = warp ?? sq;
+    for (let i = 0; i < 4; i++) {
+      if (Math.hypot(cp.x - dq[i].x * s, cp.y - dq[i].y * s) < HANDLE_R) return i;
+    }
+    return -1;
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const hit = findHandle(toCanvas(e.clientX, e.clientY));
+    if (hit >= 0) {
+      dragRef.current = hit;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      e.currentTarget.style.cursor = "grabbing";
+      e.preventDefault();
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const cp = toCanvas(e.clientX, e.clientY);
+    if (dragRef.current < 0) {
+      e.currentTarget.style.cursor = findHandle(cp) >= 0 ? "grab" : "crosshair";
+      return;
+    }
+    const s = CANVAS_W / analysis.width;
+    const wpt: Pt = {
+      x: Math.max(0, Math.min(analysis.width, cp.x / s)),
+      y: Math.max(0, Math.min(analysis.height, cp.y / s)),
+    };
+    const base = warp ?? sq;
+    pendingRef.current = base.map((p, i) => (i === dragRef.current ? wpt : p));
+    if (!rafRef.current) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
+        if (pendingRef.current) onWarp(pendingRef.current);
+      });
+    }
+  };
+
+  const endDrag = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragRef.current >= 0) {
+      dragRef.current = -1;
+      e.currentTarget.style.cursor = "grab";
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
   const m0 = analysis.moduleSize || 8;
   const deviation = Math.abs(params.grid * params.moduleSize - bbox.w);
@@ -131,8 +278,8 @@ export default function CalibrateStep({
         <div>
           <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight">Калибровка сетки</h2>
           <p className="text-inkmid text-sm mt-1 max-w-xl">
-            Шаг модуля и сетка определены автоматически. Убедитесь, что линии ложатся на пиксели кода, —
-            при необходимости подкрутите ползунки.
+            Шаг модуля и сетка определены автоматически. Подкрутите ползунки, чтобы линии легли на пиксели,
+            а если фото снято под углом — потяните оранжевые уголки прямо на снимке.
           </p>
         </div>
         <span className="inline-flex items-center gap-2 font-mono text-xs text-inkmid bg-panel border border-line rounded px-2.5 py-1.5">
@@ -153,7 +300,39 @@ export default function CalibrateStep({
             </span>
           </div>
           <div className="relative scanline bg-ink/5">
-            <canvas ref={canvasRef} width={CANVAS_W} height={canvasH} className="w-full h-auto" />
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_W}
+              height={canvasH}
+              className="w-full h-auto touch-none select-none"
+              style={{ cursor: "crosshair" }}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              onPointerLeave={endDrag}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 border-t border-line bg-panel">
+            <span className="inline-flex items-center gap-2 text-[13px] font-medium text-inkmid">
+              <Move className="w-4 h-4 text-accent shrink-0" />
+              Тяните оранжевые уголки, чтобы выгнуть фото под сетку — исправляет кривизну бумаги и ракурс.
+            </span>
+            {warpActive && (
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded bg-accent/10 border border-accent/40 text-accent-deep px-2 py-0.5 font-mono text-[11px] font-semibold">
+                  <span className="led w-1.5 h-1.5 rounded-full bg-accent" />
+                  перспектива правится
+                </span>
+                <button
+                  onClick={() => onWarp(null)}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-line bg-paper px-3 py-1.5 text-[12px] font-semibold text-inkmid transition-all hover:border-danger hover:text-danger"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Сбросить искажение
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -169,10 +348,17 @@ export default function CalibrateStep({
                 ["Сетка", `${analysis.grid}×${analysis.grid}`],
                 ["Версия QR", `v${qrVersion(analysis.grid)}`],
                 ["Область", `${bbox.w}×${bbox.h}`],
+                ["Искажение", warpActive ? "вручную (углы)" : "нет"],
               ].map(([k, v]) => (
                 <div key={k} className="flex flex-col">
                   <dt className="text-xs text-inksoft">{k}</dt>
-                  <dd className="font-mono text-sm font-semibold text-ink">{v}</dd>
+                  <dd
+                    className={`font-mono text-sm font-semibold ${
+                      k === "Искажение" && warpActive ? "text-accent-deep" : "text-ink"
+                    }`}
+                  >
+                    {v}
+                  </dd>
                 </div>
               ))}
             </dl>

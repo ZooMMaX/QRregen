@@ -312,7 +312,7 @@ export function drawQrToCanvas(
   const ctx = c.getContext("2d")!;
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = "#000000";
+    ctx.fillStyle = "#000000";
   for (let r = 0; r < grid; r++) {
     for (let col = 0; col < grid; col++) {
       if (colors[r * grid + col]) {
@@ -321,4 +321,170 @@ export function drawQrToCanvas(
     }
   }
   return c;
+}
+
+/* ================= перспективное искажение (corner-pin) ================= */
+
+export interface Pt {
+  x: number;
+  y: number;
+}
+
+/**
+ * Решает гомографию (3×3, построчно), переводящую 4 точки `from` в 4 точки `to`.
+ * Модель: x' = (a·x + b·y + c) / (g·x + h·y + 1),  y' = (d·x + e·y + f) / (g·x + h·y + 1).
+ */
+function solveH(from: Pt[], to: Pt[]): number[] | null {
+  const n = 8;
+  const M: number[][] = [];
+  for (let i = 0; i < 4; i++) {
+    const { x, y } = from[i];
+    const { x: X, y: Y } = to[i];
+    M.push([x, y, 1, 0, 0, 0, -X * x, -X * y, X]);
+    M.push([0, 0, 0, x, y, 1, -Y * x, -Y * y, Y]);
+  }
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-9) return null;
+    const tmp = M[col];
+    M[col] = M[piv];
+    M[piv] = tmp;
+    const pv = M[col][col];
+    for (let c = col; c <= n; c++) M[col][c] /= pv;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col];
+      if (f === 0) continue;
+      for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  const p = M.map((r) => r[n]);
+  return [p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], 1];
+}
+
+export function applyH(H: number[], x: number, y: number): Pt {
+  const w = H[6] * x + H[7] * y + H[8];
+  return { x: (H[0] * x + H[1] * y + H[2]) / w, y: (H[3] * x + H[4] * y + H[5]) / w };
+}
+
+function bilinearGray(gray: Float32Array, W: number, Hh: number, x: number, y: number): number {
+  if (x < 0) x = 0;
+  else if (x > W - 1) x = W - 1;
+  if (y < 0) y = 0;
+  else if (y > Hh - 1) y = Hh - 1;
+  const x0 = x | 0;
+  const y0 = y | 0;
+  const x1 = x0 < W - 1 ? x0 + 1 : x0;
+  const y1 = y0 < Hh - 1 ? y0 + 1 : y0;
+  const fx = x - x0;
+  const fy = y - y0;
+  const r0 = y0 * W;
+  const r1 = y1 * W;
+  return (
+    (gray[r0 + x0] * (1 - fx) + gray[r0 + x1] * fx) * (1 - fy) +
+    (gray[r1 + x0] * (1 - fx) + gray[r1 + x1] * fx) * fy
+  );
+}
+
+/**
+ * Искажает карту яркости: для каждого рабочего пикселя (dest) ищет исходный
+ * пиксель через обратную гомографию dq→sq и биlinear-интерполирует.
+ * sq — исходный четырёхугольник (углы области кода), dq — куда их "растянули".
+ */
+export function warpGray(
+  gray: Float32Array,
+  W: number,
+  Hh: number,
+  sq: Pt[],
+  dq: Pt[]
+): Float32Array {
+  const H = solveH(dq, sq); // dest -> source
+  if (!H) return gray.slice();
+  const out = new Float32Array(W * Hh);
+  for (let y = 0; y < Hh; y++) {
+    const off = y * W;
+    for (let x = 0; x < W; x++) {
+      const s = applyH(H, x, y);
+      out[off + x] = bilinearGray(gray, W, Hh, s.x, s.y);
+    }
+  }
+  return out;
+}
+
+/**
+ * Заполняет preview-буфер RGBA искажённым изображением (для живого предпросмотра).
+ * src — RGBA рабочих размеров, sq/dq — четырёхугольники в рабочих координатах.
+ */
+export function renderWarpPreview(
+  src: Uint8ClampedArray,
+  W: number,
+  Hh: number,
+  sq: Pt[],
+  dq: Pt[],
+  out: Uint8ClampedArray,
+  outW: number,
+  outH: number
+): void {
+  const H = solveH(dq, sq); // dest -> source
+  if (!H) return;
+  const scaleX = W / outW;
+  const scaleY = Hh / outH;
+  for (let py = 0; py < outH; py++) {
+    const wy = (py + 0.5) * scaleY;
+    const rowOff = py * outW;
+    for (let px = 0; px < outW; px++) {
+      const wx = (px + 0.5) * scaleX;
+      const s = applyH(H, wx, wy);
+      let x = s.x;
+      let y = s.y;
+      if (x < 0) x = 0;
+      else if (x > W - 1) x = W - 1;
+      if (y < 0) y = 0;
+      else if (y > Hh - 1) y = Hh - 1;
+      const x0 = x | 0;
+      const y0 = y | 0;
+      const x1 = x0 < W - 1 ? x0 + 1 : x0;
+      const y1 = y0 < Hh - 1 ? y0 + 1 : y0;
+      const fx = x - x0;
+      const fy = y - y0;
+      const i00 = (y0 * W + x0) * 4;
+      const i10 = (y0 * W + x1) * 4;
+      const i01 = (y1 * W + x0) * 4;
+      const i11 = (y1 * W + x1) * 4;
+      const o = (rowOff + px) * 4;
+      for (let ch = 0; ch < 3; ch++) {
+        const v =
+          (src[i00 + ch] * (1 - fx) + src[i10 + ch] * fx) * (1 - fy) +
+          (src[i01 + ch] * (1 - fx) + src[i11 + ch] * fx) * fy;
+        out[o + ch] = v;
+      }
+      out[o + 3] = 255;
+    }
+  }
+}
+
+/** Искажает цветное изображение и возвращает canvas рабочих размеров. */
+export function warpToCanvas(
+  img: HTMLImageElement,
+  W: number,
+  Hh: number,
+  sq: Pt[],
+  dq: Pt[]
+): HTMLCanvasElement {
+  const tmp = document.createElement("canvas");
+  tmp.width = W;
+  tmp.height = Hh;
+  const tc = tmp.getContext("2d", { willReadFrequently: true })!;
+  tc.drawImage(img, 0, 0, W, Hh);
+  const srcData = tc.getImageData(0, 0, W, Hh).data;
+
+  const out = document.createElement("canvas");
+  out.width = W;
+  out.height = Hh;
+  const oc = out.getContext("2d")!;
+  const outImg = oc.createImageData(W, Hh);
+  renderWarpPreview(srcData, W, Hh, sq, dq, outImg.data, W, Hh);
+  oc.putImageData(outImg, 0, 0);
+  return out;
 }
