@@ -323,49 +323,11 @@ export function drawQrToCanvas(
   return c;
 }
 
-/* ================= перспективное искажение (corner-pin) ================= */
+/* ================= геометрические примитивы ================= */
 
 export interface Pt {
   x: number;
   y: number;
-}
-
-/**
- * Решает гомографию (3×3, построчно), переводящую 4 точки `from` в 4 точки `to`.
- * Модель: x' = (a·x + b·y + c) / (g·x + h·y + 1),  y' = (d·x + e·y + f) / (g·x + h·y + 1).
- */
-function solveH(from: Pt[], to: Pt[]): number[] | null {
-  const n = 8;
-  const M: number[][] = [];
-  for (let i = 0; i < 4; i++) {
-    const { x, y } = from[i];
-    const { x: X, y: Y } = to[i];
-    M.push([x, y, 1, 0, 0, 0, -X * x, -X * y, X]);
-    M.push([0, 0, 0, x, y, 1, -Y * x, -Y * y, Y]);
-  }
-  for (let col = 0; col < n; col++) {
-    let piv = col;
-    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
-    if (Math.abs(M[piv][col]) < 1e-9) return null;
-    const tmp = M[col];
-    M[col] = M[piv];
-    M[piv] = tmp;
-    const pv = M[col][col];
-    for (let c = col; c <= n; c++) M[col][c] /= pv;
-    for (let r = 0; r < n; r++) {
-      if (r === col) continue;
-      const f = M[r][col];
-      if (f === 0) continue;
-      for (let c = col; c <= n; c++) M[r][c] -= f * M[col][c];
-    }
-  }
-  const p = M.map((r) => r[n]);
-  return [p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], 1];
-}
-
-export function applyH(H: number[], x: number, y: number): Pt {
-  const w = H[6] * x + H[7] * y + H[8];
-  return { x: (H[0] * x + H[1] * y + H[2]) / w, y: (H[3] * x + H[4] * y + H[5]) / w };
 }
 
 function bilinearGray(gray: Float32Array, W: number, Hh: number, x: number, y: number): number {
@@ -387,47 +349,108 @@ function bilinearGray(gray: Float32Array, W: number, Hh: number, x: number, y: n
   );
 }
 
+
+/* ================= сетка контрольных точек (кусочно-билинейное искажение) ================= */
+
+export interface LatticeWarp {
+  /** точек на сторону (n×n) */
+  n: number;
+  /** смещения (drag − rest) каждой точки в рабочих пикселях, длина n*n */
+  offsets: Pt[];
+}
+
+export interface Region {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function identityLattice(n: number): LatticeWarp {
+  return { n, offsets: Array.from({ length: n * n }, () => ({ x: 0, y: 0 })) };
+}
+
+export function hasLatticeWarp(l: LatticeWarp | null): boolean {
+  if (!l) return false;
+  return l.offsets.some((o) => Math.abs(o.x) > 0.05 || Math.abs(o.y) > 0.05);
+}
+
+/** Область действия сетки — bbox кода, расширенный на 10% (рабочие координаты). */
+export function latticeRegion(a: Analysis): Region {
+  const b = a.bbox!;
+  const pad = Math.max(b.w, b.h) * 0.1;
+  const x = Math.max(0, b.x - pad);
+  const y = Math.max(0, b.y - pad);
+  const x2 = Math.min(a.width, b.x + b.w + pad);
+  const y2 = Math.min(a.height, b.y + b.h + pad);
+  return { x, y, w: x2 - x, h: y2 - y };
+}
+
+/** rest-позиция узла (i — столбец, j — строка). */
+export function latticeRestPos(r: Region, n: number, i: number, j: number): Pt {
+  return { x: r.x + (r.w * i) / (n - 1), y: r.y + (r.h * j) / (n - 1) };
+}
+
 /**
- * Искажает карту яркости: для каждого рабочего пикселя (dest) ищет исходный
- * пиксель через обратную гомографию dq→sq и биlinear-интерполирует.
- * sq — исходный четырёхугольник (углы области кода), dq — куда их "растянули".
+ * Обратное отображение: по выходному (идеальному) пикселю (x,y) возвращает исходный
+ * пиксель в фото — кусочно-билинейная интерполяция четырёх узлов сетки вокруг точки.
  */
-export function warpGray(
+export function latticeSource(l: LatticeWarp, r: Region, x: number, y: number): Pt {
+  const n = l.n;
+  const cw = r.w / (n - 1);
+  const ch = r.h / (n - 1);
+  let u = (x - r.x) / cw;
+  let v = (y - r.y) / ch;
+  if (u < 0) u = 0;
+  else if (u > n - 1) u = n - 1;
+  if (v < 0) v = 0;
+  else if (v > n - 1) v = n - 1;
+  let i = Math.floor(u);
+  if (i > n - 2) i = n - 2;
+  let j = Math.floor(v);
+  if (j > n - 2) j = n - 2;
+  const fu = u - i;
+  const fv = v - j;
+  const o = l.offsets;
+  const dragX = (ii: number, jj: number) => r.x + (r.w * ii) / (n - 1) + o[jj * n + ii].x;
+  const dragY = (ii: number, jj: number) => r.y + (r.h * jj) / (n - 1) + o[jj * n + ii].y;
+  const topX = dragX(i, j) * (1 - fu) + dragX(i + 1, j) * fu;
+  const topY = dragY(i, j) * (1 - fu) + dragY(i + 1, j) * fu;
+  const botX = dragX(i, j + 1) * (1 - fu) + dragX(i + 1, j + 1) * fu;
+  const botY = dragY(i, j + 1) * (1 - fu) + dragY(i + 1, j + 1) * fu;
+  return { x: topX * (1 - fv) + botX * fv, y: topY * (1 - fv) + botY * fv };
+}
+
+/** Искажение карты яркости сеткой контрольных точек. */
+export function warpGrayLattice(
   gray: Float32Array,
   W: number,
   Hh: number,
-  sq: Pt[],
-  dq: Pt[]
+  l: LatticeWarp,
+  r: Region
 ): Float32Array {
-  const H = solveH(dq, sq); // dest -> source
-  if (!H) return gray.slice();
   const out = new Float32Array(W * Hh);
   for (let y = 0; y < Hh; y++) {
     const off = y * W;
     for (let x = 0; x < W; x++) {
-      const s = applyH(H, x, y);
+      const s = latticeSource(l, r, x, y);
       out[off + x] = bilinearGray(gray, W, Hh, s.x, s.y);
     }
   }
   return out;
 }
 
-/**
- * Заполняет preview-буфер RGBA искажённым изображением (для живого предпросмотра).
- * src — RGBA рабочих размеров, sq/dq — четырёхугольники в рабочих координатах.
- */
-export function renderWarpPreview(
+/** Заполнение preview-буфера RGBA искажённым изображением (для живого предпросмотра). */
+export function renderWarpPreviewLattice(
   src: Uint8ClampedArray,
   W: number,
   Hh: number,
-  sq: Pt[],
-  dq: Pt[],
+  l: LatticeWarp,
+  r: Region,
   out: Uint8ClampedArray,
   outW: number,
   outH: number
 ): void {
-  const H = solveH(dq, sq); // dest -> source
-  if (!H) return;
   const scaleX = W / outW;
   const scaleY = Hh / outH;
   for (let py = 0; py < outH; py++) {
@@ -435,7 +458,7 @@ export function renderWarpPreview(
     const rowOff = py * outW;
     for (let px = 0; px < outW; px++) {
       const wx = (px + 0.5) * scaleX;
-      const s = applyH(H, wx, wy);
+      const s = latticeSource(l, r, wx, wy);
       let x = s.x;
       let y = s.y;
       if (x < 0) x = 0;
@@ -453,24 +476,24 @@ export function renderWarpPreview(
       const i01 = (y1 * W + x0) * 4;
       const i11 = (y1 * W + x1) * 4;
       const o = (rowOff + px) * 4;
-      for (let ch = 0; ch < 3; ch++) {
+      for (let ch2 = 0; ch2 < 3; ch2++) {
         const v =
-          (src[i00 + ch] * (1 - fx) + src[i10 + ch] * fx) * (1 - fy) +
-          (src[i01 + ch] * (1 - fx) + src[i11 + ch] * fx) * fy;
-        out[o + ch] = v;
+          (src[i00 + ch2] * (1 - fx) + src[i10 + ch2] * fx) * (1 - fy) +
+          (src[i01 + ch2] * (1 - fx) + src[i11 + ch2] * fx) * fy;
+        out[o + ch2] = v;
       }
       out[o + 3] = 255;
     }
   }
 }
 
-/** Искажает цветное изображение и возвращает canvas рабочих размеров. */
-export function warpToCanvas(
+/** Искажение цветного изображения сеткой; возвращает canvas рабочих размеров. */
+export function warpToCanvasLattice(
   img: HTMLImageElement,
   W: number,
   Hh: number,
-  sq: Pt[],
-  dq: Pt[]
+  l: LatticeWarp,
+  r: Region
 ): HTMLCanvasElement {
   const tmp = document.createElement("canvas");
   tmp.width = W;
@@ -478,13 +501,205 @@ export function warpToCanvas(
   const tc = tmp.getContext("2d", { willReadFrequently: true })!;
   tc.drawImage(img, 0, 0, W, Hh);
   const srcData = tc.getImageData(0, 0, W, Hh).data;
-
   const out = document.createElement("canvas");
   out.width = W;
   out.height = Hh;
   const oc = out.getContext("2d")!;
   const outImg = oc.createImageData(W, Hh);
-  renderWarpPreview(srcData, W, Hh, sq, dq, outImg.data, W, Hh);
+  renderWarpPreviewLattice(srcData, W, Hh, l, r, outImg.data, W, Hh);
   oc.putImageData(outImg, 0, 0);
   return out;
+}
+
+/* ================= автовыравнивание по finder-паттернам ================= */
+
+/** Кодирует линию в чередующиеся серии {len, dark}. */
+function encodeRuns(get: (t: number) => number, len: number): { len: number; dark: boolean }[] {
+  const runs: { len: number; dark: boolean }[] = [];
+  let t = 0;
+  while (t < len) {
+    const dark = get(t) === 1;
+    let l = 0;
+    while (t < len && (get(t) === 1) === dark) {
+      l++;
+      t++;
+    }
+    runs.push({ len: l, dark });
+  }
+  return runs;
+}
+
+/** Скользящим окном ищет серии 1:1:3:1:1 (finder) и возвращает их центры. */
+function patternCenters(runs: { len: number; dark: boolean }[], other: number, horizontal: boolean): Pt[] {
+  const out: Pt[] = [];
+  for (let k = 0; k + 5 <= runs.length; k++) {
+    const r0 = runs[k];
+    const r1 = runs[k + 1];
+    const r2 = runs[k + 2];
+    const r3 = runs[k + 3];
+    const r4 = runs[k + 4];
+    if (!(r0.dark && !r1.dark && r2.dark && !r3.dark && r4.dark)) continue;
+    const total = r0.len + r1.len + r2.len + r3.len + r4.len;
+    const m = total / 7;
+    if (m < 2) continue;
+    if (
+      Math.abs(r0.len - m) > 0.5 * m ||
+      Math.abs(r1.len - m) > 0.5 * m ||
+      Math.abs(r2.len - 3 * m) > 1.5 * m ||
+      Math.abs(r3.len - m) > 0.5 * m ||
+      Math.abs(r4.len - m) > 0.5 * m
+    )
+      continue;
+    let start = 0;
+    for (let q = 0; q < k; q++) start += runs[q].len;
+    const center = start + total / 2;
+    out.push(horizontal ? { x: center, y: other } : { x: other, y: center });
+  }
+  return out;
+}
+
+/**
+ * Находит центры трёх finder-паттернов на фото и расставляет их по ролям [TL, TR, BL].
+ * Возвращает меньше трёх точек, если паттерны не уверенно детектированы.
+ */
+export function findFinderCenters(a: Analysis): Pt[] {
+  const m = a.moduleSize;
+  const W = a.width;
+  const H = a.height;
+  const dark = a.dark;
+  if (!(m > 0)) return [];
+  const pts: Pt[] = [];
+  const rowStep = Math.max(1, Math.floor(H / 240));
+  for (let y = 0; y < H; y += rowStep) {
+    const runs = encodeRuns((x) => dark[y * W + x], W);
+    pts.push(...patternCenters(runs, y, true));
+  }
+  const colStep = Math.max(1, Math.floor(W / 240));
+  for (let x = 0; x < W; x += colStep) {
+    const runs = encodeRuns((y) => dark[y * W + x], H);
+    pts.push(...patternCenters(runs, x, false));
+  }
+  if (pts.length < 3) return [];
+
+  const rad = Math.max(6, m * 2.2);
+  const used = new Array(pts.length).fill(false);
+  const clusters: { x: number; y: number; count: number }[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    let sx = pts[i].x;
+    let sy = pts[i].y;
+    let cnt = 1;
+    let cx = sx;
+    let cy = sy;
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let j = 0; j < pts.length; j++) {
+        if (used[j]) continue;
+        if (Math.hypot(pts[j].x - cx, pts[j].y - cy) <= rad) {
+          used[j] = true;
+          sx += pts[j].x;
+          sy += pts[j].y;
+          cnt++;
+          cx = sx / cnt;
+          cy = sy / cnt;
+          changed = true;
+        }
+      }
+    }
+    clusters.push({ x: cx, y: cy, count: cnt });
+  }
+  clusters.sort((p, q) => q.count - p.count);
+  const top = clusters.slice(0, 3);
+  if (top.length < 3) return [];
+  const p1 = { x: top[0].x, y: top[0].y };
+  const p2 = { x: top[1].x, y: top[1].y };
+  const p3 = { x: top[2].x, y: top[2].y };
+
+  const d12 = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+  const d13 = Math.hypot(p1.x - p3.x, p1.y - p3.y);
+  const d23 = Math.hypot(p2.x - p3.x, p2.y - p3.y);
+  let tl: Pt;
+  let A: Pt;
+  let B: Pt;
+  if (d23 >= d12 && d23 >= d13) {
+    tl = p1;
+    A = p2;
+    B = p3;
+  } else if (d13 >= d12 && d13 >= d23) {
+    tl = p2;
+    A = p1;
+    B = p3;
+  } else {
+    tl = p3;
+    A = p1;
+    B = p2;
+  }
+  const cross = (A.x - tl.x) * (B.y - tl.y) - (A.y - tl.y) * (B.x - tl.x);
+  return cross > 0 ? [tl, A, B] : [tl, B, A]; // [TL, TR, BL]
+}
+
+function solve3(M: number[][], b: number[]): number[] | null {
+  const A = M.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < 3; col++) {
+    let piv = col;
+    for (let r = col + 1; r < 3; r++) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
+    if (Math.abs(A[piv][col]) < 1e-9) return null;
+    const tmp = A[col];
+    A[col] = A[piv];
+    A[piv] = tmp;
+    const pv = A[col][col];
+    for (let c = col; c <= 3; c++) A[col][c] /= pv;
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = A[r][col];
+      if (f === 0) continue;
+      for (let c = col; c <= 3; c++) A[r][c] -= f * A[col][c];
+    }
+  }
+  return [A[0][3], A[1][3], A[2][3]];
+}
+
+/** Аффинное M(x,y) = (a x + b y + c, d x + e y + f) по трём парам соответствий. */
+function solveAffine(from: Pt[], to: Pt[]): number[] | null {
+  const M = from.map((p) => [p.x, p.y, 1]);
+  const cx = solve3(M, to.map((p) => p.x));
+  const cy = solve3(M, to.map((p) => p.y));
+  if (!cx || !cy) return null;
+  return [cx[0], cx[1], cx[2], cy[0], cy[1], cy[2]];
+}
+
+function applyAffine(M: number[], x: number, y: number): Pt {
+  return { x: M[0] * x + M[1] * y + M[2], y: M[3] * x + M[4] * y + M[5] };
+}
+
+/**
+ * Автовыравнивание: детектирует finder-паттерны, строит аффинное соответствие
+ * «идеальная сетка → фото» и раскладывает его в смещения узлов сетки n×n.
+ * Возвращает null, если паттерны не найдены.
+ */
+export function computeAutoOffsets(a: Analysis, p: Params, n: number): Pt[] | null {
+  const centers = findFinderCenters(a);
+  if (centers.length < 3) return null;
+  const [TL, TR, BL] = centers;
+  const m = p.moduleSize;
+  const g = p.grid;
+  const ideal = [
+    { x: p.originX + 3.5 * m, y: p.originY + 3.5 * m },
+    { x: p.originX + (g - 3.5) * m, y: p.originY + 3.5 * m },
+    { x: p.originX + 3.5 * m, y: p.originY + (g - 3.5) * m },
+  ];
+  const M = solveAffine(ideal, [TL, TR, BL]);
+  if (!M) return null;
+  const r = latticeRegion(a);
+  const offs: Pt[] = [];
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const R = latticeRestPos(r, n, i, j);
+      const S = applyAffine(M, R.x, R.y);
+      offs.push({ x: S.x - R.x, y: S.y - R.y });
+    }
+  }
+  return offs;
 }

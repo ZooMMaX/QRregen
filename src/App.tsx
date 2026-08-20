@@ -10,11 +10,13 @@ import {
   Analysis,
   Params,
   Sampled,
-  Pt,
+  LatticeWarp,
   analyzeImage,
   sampleModules,
-  warpGray,
-  warpToCanvas,
+  latticeRegion,
+  hasLatticeWarp,
+  warpGrayLattice,
+  warpToCanvasLattice,
 } from "./lib/imaging";
 
 const STEP_ORDER: Step[] = ["upload", "crop", "calibrate", "review", "result"];
@@ -85,8 +87,8 @@ export default function App() {
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
   const reviewRef = useRef<ReviewState | null>(null);
   const cropRef = useRef<CropTransform>({ ...DEFAULT_CROP });
-  /** углы перспективного искажения (рабочие координаты); null = без искажения */
-  const [warp, setWarp] = useState<Pt[] | null>(null);
+  /** сетка контрольных точек для коррекции искажений; null = без искажения */
+  const [lattice, setLattice] = useState<LatticeWarp | null>(null);
   /** изображение, которое показывается на проверке (с учётом искажения) */
   const [displayImg, setDisplayImg] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
 
@@ -117,7 +119,7 @@ export default function App() {
     setSamplingKey("");
     reviewRef.current = null;
     cropRef.current = { ...DEFAULT_CROP };
-    setWarp(null);
+    setLattice(null);
     setDisplayImg(null);
   }, []);
 
@@ -138,7 +140,7 @@ export default function App() {
       setFinalColors(null);
       setSamplingKey("");
       reviewRef.current = null;
-      setWarp(null);
+      setLattice(null);
       setDisplayImg(null);
       setStep("crop");
       showToast(`Код найден · ориентир ${a.grid}×${a.grid} модулей`);
@@ -162,7 +164,7 @@ export default function App() {
       setFinalColors(null);
       setSamplingKey("");
       reviewRef.current = null;
-      setWarp(null);
+      setLattice(null);
       setDisplayImg(null);
       setStep("calibrate");
       return true;
@@ -177,8 +179,9 @@ export default function App() {
   const enterReview = useCallback(() => {
     if (!analysis || !params || !img) return;
     const n = params.grid;
-    const warpSig = warp
-      ? warp.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(";")
+    const warped = hasLatticeWarp(lattice);
+    const warpSig = warped
+      ? lattice!.offsets.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(";")
       : "none";
     const key = [
       n,
@@ -188,18 +191,14 @@ export default function App() {
       warpSig,
     ].join("|");
     if (!sampled || samplingKey !== key) {
-      // исходный четырёхугольник — углы найденной области кода
-      const b = analysis.bbox!;
-      const sq: Pt[] = [
-        { x: b.x, y: b.y },
-        { x: b.x + b.w, y: b.y },
-        { x: b.x + b.w, y: b.y + b.h },
-        { x: b.x, y: b.y + b.h },
-      ];
       let effective: Analysis = analysis;
-      if (warp) {
-        effective = { ...analysis, gray: warpGray(analysis.gray, analysis.width, analysis.height, sq, warp) };
-        setDisplayImg(warpToCanvas(img, analysis.width, analysis.height, sq, warp));
+      if (warped) {
+        const region = latticeRegion(analysis);
+        effective = {
+          ...analysis,
+          gray: warpGrayLattice(analysis.gray, analysis.width, analysis.height, lattice!, region),
+        };
+        setDisplayImg(warpToCanvasLattice(img, analysis.width, analysis.height, lattice!, region));
       } else {
         setDisplayImg(img);
       }
@@ -212,7 +211,7 @@ export default function App() {
       };
     }
     setStep("review");
-  }, [analysis, params, img, sampled, samplingKey, warp]);
+  }, [analysis, params, img, sampled, samplingKey, lattice]);
 
   const handleFinished = useCallback(() => {
     if (!reviewRef.current) return;
@@ -328,8 +327,9 @@ export default function App() {
             analysis={analysis}
             params={params}
             fileName={imgName}
-            warp={warp}
-            onWarp={setWarp}
+            lattice={lattice}
+            onLattice={setLattice}
+            onToast={showToast}
             onParams={setParams}
             onStart={enterReview}
             onRestart={resetAll}
