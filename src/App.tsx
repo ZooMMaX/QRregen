@@ -409,6 +409,11 @@ export default function App() {
             <span aria-hidden="true" className="text-line">·</span>
             Все вычисления локально — фото не покидает браузер
           </span>
+          <span className="inline-flex items-center gap-2.5">
+            <a href="/privacy/" className="hover:text-accent transition-colors">Политика конфиденциальности</a>
+            <span aria-hidden="true" className="text-line">·</span>
+            <a href="/terms/" className="hover:text-accent transition-colors">Соглашение</a>
+          </span>
           <span className="hidden md:inline">
             <kbd className="bg-paper border border-line rounded px-1.5 py-0.5">SPACE</kbd> верно ·{" "}
             <kbd className="bg-paper border border-line rounded px-1.5 py-0.5">X</kbd> инвертировать ·{" "}
