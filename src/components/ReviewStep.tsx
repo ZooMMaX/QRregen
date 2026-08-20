@@ -18,7 +18,7 @@ export interface ReviewState {
 }
 
 interface Props {
-  img: HTMLImageElement;
+  img: HTMLImageElement | HTMLCanvasElement;
   analysis: Analysis;
   params: Params;
   sampled: Sampled;

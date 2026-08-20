@@ -6,7 +6,18 @@ import TransformStep, { CropTransform, DEFAULT_CROP } from "./components/Transfo
 import CalibrateStep from "./components/CalibrateStep";
 import ReviewStep, { ReviewState } from "./components/ReviewStep";
 import ResultStep from "./components/ResultStep";
-import { Analysis, Params, Sampled, analyzeImage, sampleModules } from "./lib/imaging";
+import {
+  Analysis,
+  Params,
+  Sampled,
+  LatticeWarp,
+  analyzeImage,
+  sampleModules,
+  latticeRegion,
+  hasLatticeWarp,
+  warpGrayLattice,
+  warpToCanvasLattice,
+} from "./lib/imaging";
 
 const STEP_ORDER: Step[] = ["upload", "crop", "calibrate", "review", "result"];
 
@@ -76,6 +87,10 @@ export default function App() {
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
   const reviewRef = useRef<ReviewState | null>(null);
   const cropRef = useRef<CropTransform>({ ...DEFAULT_CROP });
+  /** сетка контрольных точек для коррекции искажений; null = без искажения */
+  const [lattice, setLattice] = useState<LatticeWarp | null>(null);
+  /** изображение, которое показывается на проверке (с учётом искажения) */
+  const [displayImg, setDisplayImg] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const cur = STEP_ORDER.indexOf(step);
@@ -104,6 +119,8 @@ export default function App() {
     setSamplingKey("");
     reviewRef.current = null;
     cropRef.current = { ...DEFAULT_CROP };
+    setLattice(null);
+    setDisplayImg(null);
   }, []);
 
   /** проверка загруженного фото: ищем QR целиком, затем отправляем на кадрирование */
@@ -123,6 +140,8 @@ export default function App() {
       setFinalColors(null);
       setSamplingKey("");
       reviewRef.current = null;
+      setLattice(null);
+      setDisplayImg(null);
       setStep("crop");
       showToast(`Код найден · ориентир ${a.grid}×${a.grid} модулей`);
       return true;
@@ -145,6 +164,8 @@ export default function App() {
       setFinalColors(null);
       setSamplingKey("");
       reviewRef.current = null;
+      setLattice(null);
+      setDisplayImg(null);
       setStep("calibrate");
       return true;
     },
@@ -156,11 +177,32 @@ export default function App() {
   }, [originalImg, ingestFrame]);
 
   const enterReview = useCallback(() => {
-    if (!analysis || !params) return;
+    if (!analysis || !params || !img) return;
     const n = params.grid;
-    const key = [n, params.moduleSize.toFixed(3), params.originX.toFixed(2), params.originY.toFixed(2)].join("|");
+    const warped = hasLatticeWarp(lattice);
+    const warpSig = warped
+      ? lattice!.offsets.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(";")
+      : "none";
+    const key = [
+      n,
+      params.moduleSize.toFixed(3),
+      params.originX.toFixed(2),
+      params.originY.toFixed(2),
+      warpSig,
+    ].join("|");
     if (!sampled || samplingKey !== key) {
-      setSampled(sampleModules(analysis, params));
+      let effective: Analysis = analysis;
+      if (warped) {
+        const region = latticeRegion(analysis);
+        effective = {
+          ...analysis,
+          gray: warpGrayLattice(analysis.gray, analysis.width, analysis.height, lattice!, region),
+        };
+        setDisplayImg(warpToCanvasLattice(img, analysis.width, analysis.height, lattice!, region));
+      } else {
+        setDisplayImg(img);
+      }
+      setSampled(sampleModules(effective, params));
       setSamplingKey(key);
       reviewRef.current = {
         colors: new Uint8Array(n * n),
@@ -169,7 +211,7 @@ export default function App() {
       };
     }
     setStep("review");
-  }, [analysis, params, sampled, samplingKey]);
+  }, [analysis, params, img, sampled, samplingKey, lattice]);
 
   const handleFinished = useCallback(() => {
     if (!reviewRef.current) return;
@@ -285,6 +327,9 @@ export default function App() {
             analysis={analysis}
             params={params}
             fileName={imgName}
+            lattice={lattice}
+            onLattice={setLattice}
+            onToast={showToast}
             onParams={setParams}
             onStart={enterReview}
             onRestart={resetAll}
@@ -303,7 +348,7 @@ export default function App() {
 
         {step === "review" && img && analysis && params && sampled && reviewRef.current && (
           <ReviewStep
-            img={img}
+            img={displayImg ?? img}
             analysis={analysis}
             params={params}
             sampled={sampled}
