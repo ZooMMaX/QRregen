@@ -47,7 +47,13 @@ export function useLiveDecode(
         }
         const img = ctx.getImageData(0, 0, cv.width, cv.height);
         const res = jsQR(img.data, img.width, img.height);
-        setContent(res ? res.data : null);
+        if (res) {
+          // корректный UTF-8 из байтов payload (кириллица и т.п.)
+          const bytes = Uint8Array.from(res.binaryData);
+          setContent(new TextDecoder("utf-8").decode(bytes));
+        } else {
+          setContent(null);
+        }
         setState(res ? "ok" : "fail");
       } catch {
         setContent(null);

@@ -42,6 +42,8 @@ interface Props {
   onAutoReset: () => void;
   onBackToCrop: () => void;
   onToast: (msg: string) => void;
+  /** вызывается, когда живой декодер прочитал QR на этом шаге */
+  onDecoded: (text: string) => void;
 }
 
 const CANVAS_W = 720;
@@ -62,6 +64,7 @@ export default function CalibrateStep({
   onAutoReset,
   onBackToCrop,
   onToast,
+  onDecoded,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offRef = useRef<HTMLCanvasElement | null>(null);
@@ -85,6 +88,11 @@ export default function CalibrateStep({
     [analysis, params, eff],
     320
   );
+
+  useEffect(() => {
+    if (decode.state === "ok" && decode.content) onDecoded(decode.content);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decode.state, decode.content]);
 
   const canvasH = Math.round((CANVAS_W * analysis.height) / analysis.width);
 
