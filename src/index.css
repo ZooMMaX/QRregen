@@ -1,0 +1,228 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --font-sans: "Golos Text", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-paper: #e7eaec;
+  --color-panel: #fbfcfd;
+  --color-ink: #141a22;
+  --color-inkmid: #3f4a59;
+  --color-inksoft: #707b8a;
+  --color-line: #d2d9df;
+  --color-accent: #ff4d00;
+  --color-accent-deep: #cf3e00;
+  --color-ok: #0f8a4d;
+  --color-warn: #a86e08;
+  --color-danger: #d92d20;
+  --color-teal: #0e7c86;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-paper text-ink font-sans antialiased;
+  background-image:
+    linear-gradient(rgba(20, 26, 34, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 26, 34, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(20, 26, 34, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 26, 34, 0.028) 1px, transparent 1px);
+  background-size:
+    120px 120px,
+    120px 120px,
+    24px 24px,
+    24px 24px;
+}
+
+::selection {
+  background: rgba(255, 77, 0, 0.25);
+}
+
+canvas {
+  display: block;
+}
+
+/* ---------- cards ---------- */
+.card {
+  @apply bg-panel border border-line rounded-lg;
+  box-shadow:
+    0 1px 0 rgba(20, 26, 34, 0.04),
+    0 10px 28px -16px rgba(20, 26, 34, 0.22);
+}
+
+.card-hard {
+  background: var(--color-panel);
+  border: 1.5px solid var(--color-ink);
+  border-radius: 10px;
+  box-shadow: 6px 6px 0 rgba(20, 26, 34, 0.13);
+}
+
+.card-ink {
+  background: var(--color-ink);
+  color: #f2f4f6;
+  border: 1.5px solid var(--color-ink);
+  border-radius: 10px;
+  box-shadow: 6px 6px 0 rgba(255, 77, 0, 0.28);
+}
+
+/* ---------- controls ---------- */
+input[type="range"] {
+  accent-color: var(--color-accent);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.checker {
+  background-image: conic-gradient(#dde2e7 25%, #f6f8f9 0 50%, #dde2e7 0 75%, #f6f8f9 0);
+  background-size: 18px 18px;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+}
+
+/* ---------- animation ---------- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-rise {
+  animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes flashOk {
+  0% {
+    box-shadow: 0 0 0 0 rgba(15, 138, 77, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 22px rgba(15, 138, 77, 0);
+  }
+}
+.flash-ok {
+  animation: flashOk 0.5s ease-out both;
+}
+
+@keyframes flashInv {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 0, 0.65);
+  }
+  100% {
+    box-shadow: 0 0 0 22px rgba(255, 77, 0, 0);
+  }
+}
+.flash-inv {
+  animation: flashInv 0.5s ease-out both;
+}
+
+@keyframes ledblink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+.led {
+  animation: ledblink 1.6s ease-in-out infinite;
+}
+
+@keyframes scanmove {
+  0% {
+    top: -38%;
+  }
+  100% {
+    top: 104%;
+  }
+}
+.scanline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 34%;
+  top: -38%;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 77, 0, 0),
+    rgba(255, 77, 0, 0.16),
+    rgba(255, 77, 0, 0)
+  );
+  animation: scanmove 3.4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes stripemove {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 28px 0;
+  }
+}
+.stripes {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.35) 0 10px,
+    transparent 10px 20px
+  );
+  background-size: 28px 28px;
+  animation: stripemove 0.8s linear infinite;
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
+}
+.animate-floaty {
+  animation: floaty 9s ease-in-out infinite;
+}
+.animate-floaty-slow {
+  animation: floaty 14s ease-in-out infinite reverse;
+}
+
+@keyframes toastin {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.toast-in {
+  animation: toastin 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes barsweep {
+  from {
+    left: -15%;
+  }
+  to {
+    left: 110%;
+  }
+}
+.barsweep {
+  left: -15%;
+  animation: barsweep 3.4s linear infinite;
+}
