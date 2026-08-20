@@ -71,6 +71,8 @@ interface Props {
   adjust: Adjustments;
   onAdjust: (a: Adjustments) => void;
   onNotice: (msg: string) => void;
+  /** вызывается, когда живой декодер прочитал QR на этом шаге */
+  onDecoded: (text: string) => void;
   /** возвращает true, если кадр принят (в кадре найден QR) */
   onDone: (cropped: HTMLImageElement) => boolean;
   /** вернуть true, если целое фото принято */
@@ -103,6 +105,7 @@ export default function TransformStep({
   adjust,
   onAdjust,
   onNotice,
+  onDecoded,
   onDone,
   onSkip,
   onBack,
@@ -182,6 +185,11 @@ export default function TransformStep({
     [img, adjust, t],
     300
   );
+
+  useEffect(() => {
+    if (decode.state === "ok" && decode.content) onDecoded(decode.content);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decode.state, decode.content]);
 
   /* ---------- отрисовка: офскрин-рендер → обработка → композиция ---------- */
   useEffect(() => {

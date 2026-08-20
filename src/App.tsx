@@ -6,6 +6,7 @@ import TransformStep, { CropTransform, DEFAULT_CROP } from "./components/Transfo
 import CalibrateStep from "./components/CalibrateStep";
 import ReviewStep, { ReviewState } from "./components/ReviewStep";
 import ResultStep from "./components/ResultStep";
+import LiveReadCard from "./components/LiveReadCard";
 import {
   Analysis,
   Params,
@@ -92,8 +93,16 @@ export default function App() {
   const [lattice, setLattice] = useState<LatticeWarp | null>(null);
   /** коррекция цвета/шума загруженного фото (применяется на шаге кадрирования) */
   const [adjust, setAdjust] = useState<Adjustments>({ ...DEFAULT_ADJUST });
+  /** последние данные, прочитанные живым декодером на любом из шагов */
+  const [liveContent, setLiveContent] = useState<string | null>(null);
+  const [readDismissed, setReadDismissed] = useState(false);
   /** изображение, которое показывается на проверке (с учётом искажения) */
   const [displayImg, setDisplayImg] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
+
+  /* новое прочтение снова показывает карточку результата */
+  useEffect(() => {
+    setReadDismissed(false);
+  }, [liveContent]);
 
   useEffect(() => {
     const cur = STEP_ORDER.indexOf(step);
@@ -125,6 +134,8 @@ export default function App() {
     setLattice(null);
     setDisplayImg(null);
     setAdjust({ ...DEFAULT_ADJUST });
+    setLiveContent(null);
+    setReadDismissed(false);
   }, []);
 
   /** проверка загруженного фото: ищем QR целиком, затем отправляем на кадрирование */
@@ -147,6 +158,8 @@ export default function App() {
       setLattice(null);
       setDisplayImg(null);
       setAdjust({ ...DEFAULT_ADJUST });
+      setLiveContent(null);
+      setReadDismissed(false);
       setStep("crop");
       showToast(`Код найден · ориентир ${a.grid}×${a.grid} модулей`);
       return true;
@@ -329,6 +342,7 @@ export default function App() {
             adjust={adjust}
             onAdjust={setAdjust}
             onNotice={showToast}
+            onDecoded={setLiveContent}
             onDone={ingestFrame}
             onSkip={handleSkipCrop}
             onBack={() => setStep("upload")}
@@ -344,6 +358,7 @@ export default function App() {
             lattice={lattice}
             onLattice={setLattice}
             onToast={showToast}
+            onDecoded={setLiveContent}
             onParams={setParams}
             onStart={enterReview}
             onRestart={resetAll}
@@ -394,6 +409,11 @@ export default function App() {
           </span>
         </div>
       </footer>
+
+      {/* результат живого чтения */}
+      {liveContent && !readDismissed && step !== "upload" && step !== "result" && (
+        <LiveReadCard content={liveContent} onDismiss={() => setReadDismissed(true)} />
+      )}
 
       {/* тост */}
       {toast && (
