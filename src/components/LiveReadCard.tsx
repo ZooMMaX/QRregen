@@ -123,27 +123,27 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
           </button>
         </div>
 
-        <div className="p-5 pt-3.5 grid sm:grid-cols-[224px_1fr] gap-5 items-start">
-          {/* чистый QR */}
-          <div className="justify-self-center sm:justify-self-stretch">
-            <div className="checker rounded-md border border-line p-2.5 grid place-items-center">
-              <canvas ref={canvasRef} className="pixelated w-[196px] h-[196px]" />
+        <div className="p-5 pt-2 flex flex-col items-center gap-4">
+          {/* чистый QR — теперь крупнее и на первом плане */}
+          <div>
+            <div className="checker rounded-md border border-line p-3 grid place-items-center">
+              <canvas ref={canvasRef} className="pixelated w-[240px] h-[240px] sm:w-[260px] sm:h-[260px]" />
             </div>
             <p className="text-center font-mono text-[10px] text-inksoft mt-1.5">
               чистый код · ECC M
             </p>
           </div>
 
-          {/* управление */}
-          <div className="min-w-0 flex flex-col gap-3.5">
-            <div className="flex flex-wrap items-center gap-2">
+          {/* компактные опции и действия */}
+          <div className="w-full flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-center gap-2">
               <div className="flex rounded-md border-[1.5px] border-ink overflow-hidden">
                 {(["jpeg", "png"] as Format[]).map((f) => (
                   <button
                     key={f}
                     onClick={() => setFormat(f)}
                     className={[
-                      "px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wide transition-colors",
+                      "px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-wide transition-colors",
                       format === f ? "bg-ink text-paper" : "bg-panel text-inkmid hover:bg-paper",
                     ].join(" ")}
                   >
@@ -158,7 +158,7 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
                     onClick={() => setSize(k)}
                     title={SIZES[k].hint}
                     className={[
-                      "px-3 py-1.5 font-mono text-[11px] font-bold transition-colors",
+                      "px-2.5 py-1 font-mono text-[11px] font-bold transition-colors",
                       size === k ? "bg-accent text-white" : "bg-panel text-inkmid hover:bg-paper",
                     ].join(" ")}
                   >
@@ -176,6 +176,7 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
               Скачать {format === "jpeg" ? "JPEG" : "PNG"} · {SIZES[size].hint}
             </button>
 
+            {/* данные — компактнее, чтобы не загораживали QR */}
             <div className="min-w-0">
               <div className="flex items-center justify-between mb-1">
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-inksoft">
@@ -197,9 +198,9 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
               <textarea
                 readOnly
                 value={content}
-                rows={4}
+                rows={3}
                 onFocus={(e) => e.currentTarget.select()}
-                className="w-full resize-none rounded-md border border-line bg-paper px-3 py-2 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+                className="w-full resize-none rounded-md border border-line bg-paper px-3 py-1.5 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
               />
             </div>
           </div>
