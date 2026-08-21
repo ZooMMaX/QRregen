@@ -124,10 +124,10 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
           <div 
             className="checker rounded-md border border-line" 
             style={{ 
-              maxWidth: 'min(100%, 280px)', 
-              maxHeight: 'min(100%, 280px)', 
-              width: '100%', 
-              aspectRatio: '1 / 1' 
+              width: 'min(100%, 85%)', 
+              maxWidth: 'min(100%, 300px)', 
+              aspectRatio: '1 / 1',
+              maxHeight: 'min(100%, 300px)' 
             }}
           >
             <canvas ref={canvasRef} className="pixelated w-full h-full" />
