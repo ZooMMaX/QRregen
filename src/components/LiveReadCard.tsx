@@ -22,6 +22,8 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
   const [size, setSize] = useState<SizeKey>("m");
   const [copied, setCopied] = useState(false);
   const [meta, setMeta] = useState<{ version: number; bytes: number } | null>(null);
+  const qrContainerRef = useRef<HTMLDivElement>(null);
+  const [qrSize, setQrSize] = useState(200);
 
   /* чистый QR из прочитанных данных */
   useEffect(() => {
@@ -31,7 +33,7 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
     QRCode.toCanvas(cv, content, {
       errorCorrectionLevel: "M",
       margin: 2,
-      width: 704,
+      width: qrSize,
       color: { dark: "#10151c", light: "#ffffff" },
     })
       .then(() => {
@@ -50,7 +52,27 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
     return () => {
       alive = false;
     };
-  }, [content]);
+  }, [content, qrSize]);
+
+  // Adaptive QR size based on allocated field (flex-[2] container)
+  useEffect(() => {
+    const container = qrContainerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect();
+      const available = Math.min(rect.width, rect.height);
+      // QR occupies ~2/3 of the allocated QR field, with some margin
+      const newSize = Math.max(120, Math.floor(available * (2 / 3) * 0.92));
+      setQrSize(newSize);
+    };
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
+    updateSize(); // initial
+
+    return () => observer.disconnect();
+  }, []); // run once, observer handles resizes
 
   const download = () => {
     const src = canvasRef.current;
@@ -120,19 +142,12 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
         </div>
 
         {/* QR area — takes most of the 2/3 field, with margins, adaptive square */}
-        <div className="flex-[2] min-h-0 flex items-center justify-center p-3 overflow-hidden">
+        <div ref={qrContainerRef} className="flex-[2] min-h-0 flex items-center justify-center p-3 overflow-hidden">
           <div 
-            className="relative checker rounded-md border border-line" 
-            style={{ 
-              width: 'min(100% - 24px, min(80%, 260px))', 
-              paddingBottom: 'min(100% - 24px, min(80%, 260px))',
-              maxWidth: '260px',
-              maxHeight: '260px'
-            }}
+            className="checker rounded-md border border-line" 
+            style={{ width: qrSize, height: qrSize }}
           >
-            <div className="absolute inset-0 p-2">
-              <canvas ref={canvasRef} className="pixelated w-full h-full" />
-            </div>
+            <canvas ref={canvasRef} className="pixelated w-full h-full" />
           </div>
         </div>
 
