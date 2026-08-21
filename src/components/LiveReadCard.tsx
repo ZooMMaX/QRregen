@@ -101,7 +101,7 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 h-[66vh] max-h-[66vh]">
+    <div className="fixed bottom-0 right-4 z-40 sm:w-[560px] w-[calc(100%-2rem)] max-w-[560px] h-[66vh]">
       <div className="card-hard h-full flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-2.5 px-4 pt-3 pb-1 shrink-0">
@@ -119,10 +119,18 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
           </button>
         </div>
 
-        {/* QR area — 2/3 */}
-        <div className="flex-[2] flex items-center justify-center p-3 min-h-0">
-          <div className="checker rounded-md border border-line p-3">
-            <canvas ref={canvasRef} className="pixelated w-[min(70vw,42vh)] h-[min(70vw,42vh)]" />
+        {/* QR area — ~2/3 of widget height, adaptive with margins */}
+        <div className="flex-[2] min-h-0 flex items-center justify-center p-4 overflow-hidden">
+          <div 
+            className="checker rounded-md border border-line" 
+            style={{ 
+              maxWidth: 'min(100%, 280px)', 
+              maxHeight: 'min(100%, 280px)', 
+              width: '100%', 
+              aspectRatio: '1 / 1' 
+            }}
+          >
+            <canvas ref={canvasRef} className="pixelated w-full h-full" />
           </div>
         </div>
 
