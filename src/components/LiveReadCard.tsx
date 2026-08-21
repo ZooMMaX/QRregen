@@ -124,10 +124,10 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
           <div 
             className="relative checker rounded-md border border-line" 
             style={{ 
-              width: 'min(100% - 24px, min(85%, 320px))', 
-              paddingBottom: 'min(100% - 24px, min(85%, 320px))',
-              maxWidth: '320px',
-              maxHeight: '320px'
+              width: 'min(100% - 24px, min(80%, 260px))', 
+              paddingBottom: 'min(100% - 24px, min(80%, 260px))',
+              maxWidth: '260px',
+              maxHeight: '260px'
             }}
           >
             <div className="absolute inset-0 p-2">
