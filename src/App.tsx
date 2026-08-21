@@ -96,6 +96,10 @@ export default function App() {
   /** последние данные, прочитанные живым декодером на любом из шагов */
   const [liveContent, setLiveContent] = useState<string | null>(null);
   const [readDismissed, setReadDismissed] = useState(false);
+
+  const openLiveWidget = () => {
+    if (liveContent) setReadDismissed(false);
+  };
   /** изображение, которое показывается на проверке (с учётом искажения) */
   const [displayImg, setDisplayImg] = useState<HTMLImageElement | HTMLCanvasElement | null>(null);
 
@@ -343,6 +347,7 @@ export default function App() {
             onAdjust={setAdjust}
             onNotice={showToast}
             onDecoded={setLiveContent}
+            onOpenWidget={openLiveWidget}
             onDone={ingestFrame}
             onSkip={handleSkipCrop}
             onBack={() => setStep("upload")}
@@ -359,6 +364,7 @@ export default function App() {
             onLattice={setLattice}
             onToast={showToast}
             onDecoded={setLiveContent}
+            onOpenWidget={openLiveWidget}
             onParams={setParams}
             onStart={enterReview}
             onRestart={resetAll}

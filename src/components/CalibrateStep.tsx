@@ -44,6 +44,7 @@ interface Props {
   onToast: (msg: string) => void;
   /** вызывается, когда живой декодер прочитал QR на этом шаге */
   onDecoded: (text: string) => void;
+  onOpenWidget?: () => void;
 }
 
 const CANVAS_W = 720;
@@ -65,6 +66,7 @@ export default function CalibrateStep({
   onBackToCrop,
   onToast,
   onDecoded,
+  onOpenWidget,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offRef = useRef<HTMLCanvasElement | null>(null);
@@ -474,7 +476,9 @@ export default function CalibrateStep({
                 <div>
                   <div className="flex items-center gap-2 text-[14px] font-bold text-ok">
                     <CheckCircle2 className="w-5 h-5 shrink-0" />
-                    QR читается — сетка верна!
+                     <button onClick={() => onOpenWidget?.()} className="hover:underline cursor-pointer">
+                       QR читается — сетка верна!
+                     </button>
                   </div>
                   {decode.content && (
                     <div className="mt-2 rounded-md bg-paper border border-line px-3 py-2 font-mono text-[12px] text-ink break-all leading-relaxed">

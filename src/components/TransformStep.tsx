@@ -73,6 +73,7 @@ interface Props {
   onNotice: (msg: string) => void;
   /** вызывается, когда живой декодер прочитал QR на этом шаге */
   onDecoded: (text: string) => void;
+  onOpenWidget?: () => void;
   /** возвращает true, если кадр принят (в кадре найден QR) */
   onDone: (cropped: HTMLImageElement) => boolean;
   /** вернуть true, если целое фото принято */
@@ -106,6 +107,7 @@ export default function TransformStep({
   onAdjust,
   onNotice,
   onDecoded,
+  onOpenWidget,
   onDone,
   onSkip,
   onBack,
@@ -528,7 +530,11 @@ export default function TransformStep({
                 ].join(" ")}
               >
                 {decode.state === "decoding" && "Читаем QR…"}
-                {decode.state === "ok" && "QR читается!"}
+                {decode.state === "ok" && (
+                  <button onClick={() => onOpenWidget?.()} className="hover:underline cursor-pointer">
+                    QR читается!
+                  </button>
+                )}
                 {decode.state === "fail" && "QR пока не читается"}
                 {decode.state === "idle" && "Живое чтение QR"}
               </div>
