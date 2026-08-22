@@ -20,4 +20,16 @@ hmr: {
     port: 3000,
     strictPort: true,
   },
+  optimizeDeps: {
+    exclude: ["prescription-scanner"],
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          scanner: ["prescription-scanner"],
+        },
+      },
+    },
+  },
 });

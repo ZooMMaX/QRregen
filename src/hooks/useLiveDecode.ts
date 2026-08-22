@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
-import { decode } from "datamatrix-decoder";
+import { scan } from "prescription-scanner";
 
 export type DecodeState = "idle" | "decoding" | "ok" | "fail";
 export type CodeType = "qr" | "datamatrix" | null;
@@ -31,7 +31,7 @@ export function useLiveDecode(
   useEffect(() => {
     setState("decoding");
     if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
+    timer.current = window.setTimeout(async () => {
       let cv: HTMLCanvasElement | null = null;
       try {
         cv = produceRef.current();
@@ -53,7 +53,7 @@ export function useLiveDecode(
         }
         const img = ctx.getImageData(0, 0, cv.width, cv.height);
         
-        // Сначала пробуем QR
+        // Сначала пробуем QR через jsQR
         const qrRes = jsQR(img.data, img.width, img.height);
         if (qrRes) {
           const bytes = Uint8Array.from(qrRes.binaryData);
@@ -63,9 +63,9 @@ export function useLiveDecode(
           return;
         }
         
-        // Если QR не найден, пробуем DataMatrix
+        // Если QR не найден, пробуем DataMatrix через prescription-scanner
         try {
-          const dmRes = decode(img.data, img.width, img.height);
+          const dmRes = await scan(img);
           if (dmRes && dmRes.data) {
             setContent(dmRes.data);
             setCodeType("datamatrix");
