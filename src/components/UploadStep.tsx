@@ -10,7 +10,7 @@ interface Props {
 /**
  * Ограничиваем исходник 2200px по длинной стороне: полноразмерные снимки
  * (12+ МП) съедают десятки МБ памяти и приводят к перезагрузке вкладки
- * на смартфонах, а для восстановления QR такого разрешения более чем достаточно.
+ * на смартфонах, а для восстановления QR/DataMatrix такого разрешения более чем достаточно.
  */
 const MAX_SRC = 2200;
 function normalizeSource(img: HTMLImageElement, done: (ready: HTMLImageElement) => void): void {
@@ -62,7 +62,7 @@ export default function UploadStep({ onImage, onError }: Props) {
         normalizeSource(img, (ready) => {
           const ok = onImage(ready, file.name);
           setBusy(null);
-          if (!ok) setError("QR-код не найден. Попробуйте снимок, где код занимает большую часть кадра.");
+          if (!ok) setError("Код не найден. Попробуйте снимок, где код занимает большую часть кадра.");
         });
       };
       img.onerror = () => {
@@ -85,12 +85,12 @@ export default function UploadStep({ onImage, onError }: Props) {
       img.onload = () => {
         const ok = onImage(img, "demo-qr.png");
         setBusy(null);
-        if (!ok) setError("Не удалось разобрать демо-QR — попробуйте ещё раз.");
+        if (!ok) setError("Не удалось разобрать демо-код — попробуйте ещё раз.");
       };
       img.src = canvas.toDataURL("image/png");
     } catch {
       setBusy(null);
-      setError("Не получилось сгенерировать демо-QR.");
+      setError("Не получилось сгенерировать демо-код.");
       onError("Ошибка генерации демо");
     }
   }, [onImage, onError]);

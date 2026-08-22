@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { Download, Copy, Check, X, QrCode } from "lucide-react";
+import { DATAMatrix, matrixToSvg } from "datamatrix-svg-ts";
+import { Download, Copy, Check, X, QrCode, ScanLine } from "lucide-react";
 
 interface Props {
   content: string;
+  codeType: "qr" | "datamatrix";
   onDismiss: () => void;
 }
 
@@ -16,43 +18,72 @@ const SIZES: Record<SizeKey, { label: string; hint: string; scale: number }> = {
   xl: { label: "XL", hint: "крупный · 16px/модуль", scale: 16 },
 };
 
-export default function LiveReadCard({ content, onDismiss }: Props) {
+export default function LiveReadCard({ content, codeType, onDismiss }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [format, setFormat] = useState<Format>("jpeg");
   const [size, setSize] = useState<SizeKey>("m");
   const [copied, setCopied] = useState(false);
-  const [meta, setMeta] = useState<{ version: number; bytes: number } | null>(null);
+  const [meta, setMeta] = useState<{ version?: number; bytes: number } | null>(null);
   const qrContainerRef = useRef<HTMLDivElement>(null);
   const [qrSize, setQrSize] = useState(200);
 
-  /* чистый QR из прочитанных данных */
+  /* чистый QR/DataMatrix из прочитанных данных */
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv) return;
     let alive = true;
-    QRCode.toCanvas(cv, content, {
-      errorCorrectionLevel: "M",
-      margin: 2,
-      width: qrSize,
-      color: { dark: "#10151c", light: "#ffffff" },
-    })
-      .then(() => {
-        if (!alive) return;
-        try {
-          const created = QRCode.create(content, { errorCorrectionLevel: "M" });
+    
+    if (codeType === "qr") {
+      QRCode.toCanvas(cv, content, {
+        errorCorrectionLevel: "M",
+        margin: 2,
+        width: qrSize,
+        color: { dark: "#10151c", light: "#ffffff" },
+      })
+        .then(() => {
+          if (!alive) return;
+          try {
+            const created = QRCode.create(content, { errorCorrectionLevel: "M" });
+            setMeta({
+              version: created.version,
+              bytes: new TextEncoder().encode(content).length,
+            });
+          } catch {
+            setMeta(null);
+          }
+        })
+        .catch(() => setMeta(null));
+    } else {
+      // DataMatrix
+      try {
+        const matrixResult = DATAMatrix({ message: content, dimension: qrSize, padding: 2 });
+        const svgString = new XMLSerializer().serializeToString(matrixResult);
+        const img = new Image();
+        const svgBlob = new Blob([svgString], { type: "image/svg+xml" });
+        const url = URL.createObjectURL(svgBlob);
+        img.onload = () => {
+          if (!alive) return;
+          const ctx = cv.getContext("2d");
+          if (!ctx) return;
+          cv.width = qrSize;
+          cv.height = qrSize;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, cv.width, cv.height);
+          ctx.drawImage(img, 0, 0, qrSize, qrSize);
           setMeta({
-            version: created.version,
             bytes: new TextEncoder().encode(content).length,
           });
-        } catch {
-          setMeta(null);
-        }
-      })
-      .catch(() => setMeta(null));
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      } catch {
+        setMeta(null);
+      }
+    }
     return () => {
       alive = false;
     };
-  }, [content, qrSize]);
+  }, [content, codeType, qrSize]);
 
   // Adaptive QR size based on allocated field (flex-[2] container)
   useEffect(() => {
@@ -128,12 +159,14 @@ export default function LiveReadCard({ content, onDismiss }: Props) {
         {/* Header */}
         <div className="flex items-center gap-2.5 px-4 pt-3 pb-1 shrink-0">
           <span className="w-6 h-6 shrink-0 rounded bg-ok text-white grid place-items-center">
-            <QrCode className="w-3.5 h-3.5" />
+            {codeType === "qr" ? <QrCode className="w-3.5 h-3.5" /> : <ScanLine className="w-3.5 h-3.5" />}
           </span>
           <div className="flex-1 min-w-0">
-            <div className="font-display text-[14px] font-bold">QR прочитан</div>
+            <div className="font-display text-[14px] font-bold">
+              {codeType === "qr" ? "QR прочитан" : "DataMatrix прочитан"}
+            </div>
             <div className="font-mono text-[10px] text-inksoft">
-              {meta ? `v${meta.version} · ${meta.bytes} байт` : "восстановлено"}
+              {meta ? (meta.version ? `v${meta.version} · ${meta.bytes} байт` : `${meta.bytes} байт`) : "восстановлено"}
             </div>
           </div>
           <button onClick={onDismiss} className="w-7 h-7 grid place-items-center text-inksoft hover:text-danger">

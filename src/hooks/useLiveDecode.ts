@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
+import { decode } from "datamatrix-decoder";
 
 export type DecodeState = "idle" | "decoding" | "ok" | "fail";
+export type CodeType = "qr" | "datamatrix" | null;
 
 export interface LiveDecode {
   state: DecodeState;
   content: string | null;
+  codeType: CodeType;
 }
 
 /**
- * Пытается прочитать QR-код из канваса, который возвращает `produce`.
+ * Пытается прочитать QR-код или DataMatrix из канваса, который возвращает `produce`.
  * Запуск отложен на `delay` мс после последнего изменения `deps`,
  * чтобы не дёргать декодер на каждое движение ползунка.
  */
@@ -20,6 +23,7 @@ export function useLiveDecode(
 ): LiveDecode {
   const [state, setState] = useState<DecodeState>("idle");
   const [content, setContent] = useState<string | null>(null);
+  const [codeType, setCodeType] = useState<CodeType>(null);
   const timer = useRef<number | null>(null);
   const produceRef = useRef(produce);
   produceRef.current = produce;
@@ -37,26 +41,47 @@ export function useLiveDecode(
       if (!cv) {
         setState("idle");
         setContent(null);
+        setCodeType(null);
         return;
       }
       try {
         const ctx = cv.getContext("2d", { willReadFrequently: true });
         if (!ctx) {
           setState("fail");
+          setCodeType(null);
           return;
         }
         const img = ctx.getImageData(0, 0, cv.width, cv.height);
-        const res = jsQR(img.data, img.width, img.height);
-        if (res) {
-          // корректный UTF-8 из байтов payload (кириллица и т.п.)
-          const bytes = Uint8Array.from(res.binaryData);
+        
+        // Сначала пробуем QR
+        const qrRes = jsQR(img.data, img.width, img.height);
+        if (qrRes) {
+          const bytes = Uint8Array.from(qrRes.binaryData);
           setContent(new TextDecoder("utf-8").decode(bytes));
-        } else {
-          setContent(null);
+          setCodeType("qr");
+          setState("ok");
+          return;
         }
-        setState(res ? "ok" : "fail");
+        
+        // Если QR не найден, пробуем DataMatrix
+        try {
+          const dmRes = decode(img.data, img.width, img.height);
+          if (dmRes && dmRes.data) {
+            setContent(dmRes.data);
+            setCodeType("datamatrix");
+            setState("ok");
+            return;
+          }
+        } catch {
+          // DataMatrix не распознан
+        }
+        
+        setContent(null);
+        setCodeType(null);
+        setState("fail");
       } catch {
         setContent(null);
+        setCodeType(null);
         setState("fail");
       }
     }, delay);
@@ -66,7 +91,7 @@ export function useLiveDecode(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  return { state, content };
+  return { state, content, codeType };
 }
 
 /** Короткое превью содержимого для вывода в бейдже. */
