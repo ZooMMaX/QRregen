@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
-import { scan } from "prescription-scanner";
+import { ZBarImage, ZBarSymbolType } from "@undecaf/zbar-wasm";
 
 export type DecodeState = "idle" | "decoding" | "ok" | "fail";
 export type CodeType = "qr" | "datamatrix" | null;
@@ -53,7 +53,7 @@ export function useLiveDecode(
         }
         const img = ctx.getImageData(0, 0, cv.width, cv.height);
         
-        // Сначала пробуем QR через jsQR
+        // Сначала пробуем QR через jsQR (быстрее для QR)
         const qrRes = jsQR(img.data, img.width, img.height);
         if (qrRes) {
           const bytes = Uint8Array.from(qrRes.binaryData);
@@ -63,23 +63,46 @@ export function useLiveDecode(
           return;
         }
         
-        // Если QR не найден, пробуем DataMatrix через prescription-scanner
+        // Если QR не найден, пробуем ZBar (поддерживает и QR, и DataMatrix)
         try {
-          const dmRes = await scan(img);
-          if (dmRes && dmRes.data) {
-            setContent(dmRes.data);
-            setCodeType("datamatrix");
-            setState("ok");
-            return;
+          const zbarImg = new ZBarImage(cv.width, cv.height);
+          zbarImg.writeGray(img.data, cv.width, cv.height);
+          
+          // Ищем все коды на изображении
+          const symbols = zbarImg.decode();
+          
+          if (symbols && symbols.length > 0) {
+            // Берём первый найденный код
+            const symbol = symbols[0];
+            
+            // Определяем тип кода
+            if (symbol.type === ZBarSymbolType.ZBAR_QRCODE) {
+              setContent(symbol.data);
+              setCodeType("qr");
+              setState("ok");
+              zbarImg.close();
+              return;
+            } else if (symbol.type === ZBarSymbolType.ZBAR_SQCODE) {
+              // SQCODE - это DataMatrix в терминологии ZBar
+              setContent(symbol.data);
+              setCodeType("datamatrix");
+              setState("ok");
+              zbarImg.close();
+              return;
+            }
           }
-        } catch {
-          // DataMatrix не распознан
+          
+          zbarImg.close();
+        } catch (e) {
+          // ZBar не распознал код
+          console.log("ZBar decode error:", e);
         }
         
         setContent(null);
         setCodeType(null);
         setState("fail");
-      } catch {
+      } catch (e) {
+        console.log("Decode error:", e);
         setContent(null);
         setCodeType(null);
         setState("fail");
