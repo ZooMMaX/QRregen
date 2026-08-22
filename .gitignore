@@ -2,23 +2,30 @@
 # Dependencies
 node_modules/
 
-# Build outputs
+# Environment
+.env
+.env.local
+.env.*
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Build artifacts
 dist/
 build/
 target/
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Environment variables
-.env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
 
 # Python
 __pycache__/
@@ -31,70 +38,39 @@ venv/
 .venv/
 pip-log.txt
 pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.gitattributes
-.next
-nyc_output
-coverage/
-.nyc_output
-istanbul
-.mypy_cache/
 .pytest_cache/
-.hypothesis/
+.mypy_cache/
 
 # Node.js
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-node_modules/
-dist
-dist-ssr
-*.min.js
-*.map
-public/dist
-.nuxt
-.output
-.next
-.vercel
-.svelte-kit
-.svelte
-.cjs
-.mjs
-.env.production
-.env.development
-.env.test
-.env.local
-.env.staging
-.env.backup
-.env.example
-.env.secret
-.env.private
-.env.public
-.env.defaults
-.env.defaults.local
-.env.defaults.test
-.env.defaults.development
-.env.defaults.production
-.env.defaults.staging
-.env.defaults.backup
-.env.defaults.example
-.env.defaults.secret
-.env.defaults.private
-.env.defaults.public
-.env.defaults.defaults
 
-# TypeScript
-*.tsbuildinfo
-*.bak
-*.swp
-*.swo
+# OS generated files
 .DS_Store
 Thumbs.db
+
+# Compression
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```
