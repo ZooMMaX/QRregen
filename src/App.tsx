@@ -95,6 +95,7 @@ export default function App() {
   const [adjust, setAdjust] = useState<Adjustments>({ ...DEFAULT_ADJUST });
   /** последние данные, прочитанные живым декодером на любом из шагов */
   const [liveContent, setLiveContent] = useState<string | null>(null);
+  const [liveCodeType, setLiveCodeType] = useState<"qr" | "datamatrix" | null>(null);
   const [readDismissed, setReadDismissed] = useState(false);
 
   const openLiveWidget = () => {
@@ -139,15 +140,16 @@ export default function App() {
     setDisplayImg(null);
     setAdjust({ ...DEFAULT_ADJUST });
     setLiveContent(null);
+    setLiveCodeType(null);
     setReadDismissed(false);
   }, []);
 
-  /** проверка загруженного фото: ищем QR целиком, затем отправляем на кадрирование */
+  /** проверка загруженного фото: ищем QR/DataMatrix целиком, затем отправляем на кадрирование */
   const handleImage = useCallback(
     (image: HTMLImageElement, name: string): boolean => {
       const a = analyzeImage(image);
       if (!a.bbox || a.moduleSize <= 0) {
-        showToast("Не удалось найти QR-код на фото");
+        showToast("Не удалось найти QR-код или DataMatrix на фото");
         return false;
       }
       setOriginalImg(image);
@@ -163,9 +165,11 @@ export default function App() {
       setDisplayImg(null);
       setAdjust({ ...DEFAULT_ADJUST });
       setLiveContent(null);
+      setLiveCodeType(a.codeType);
       setReadDismissed(false);
       setStep("crop");
-      showToast(`Код найден · ориентир ${a.grid}×${a.grid} модулей`);
+      const codeLabel = a.codeType === "qr" ? "QR-код" : "DataMatrix";
+      showToast(`${codeLabel} найден · сетка ${a.grid}×${a.grid} модулей`);
       return true;
     },
     [showToast]
@@ -176,7 +180,8 @@ export default function App() {
     (image: HTMLImageElement | HTMLCanvasElement): boolean => {
       const a = analyzeImage(image);
       if (!a.bbox || a.moduleSize <= 0) {
-        showToast("QR-код не найден в выбранном кадре");
+        const codeLabel = a.codeType === "qr" ? "QR-код" : "DataMatrix";
+        showToast(`${codeLabel} не найден в выбранном кадре`);
         return false;
       }
       setImg(image);
@@ -501,7 +506,7 @@ export default function App() {
 
       {/* результат живого чтения */}
       {liveContent && !readDismissed && step !== "upload" && step !== "result" && (
-        <LiveReadCard content={liveContent} onDismiss={() => setReadDismissed(true)} />
+        <LiveReadCard content={liveContent} codeType={liveCodeType || "qr"} onDismiss={() => setReadDismissed(true)} />
       )}
 
       {/* тост */}

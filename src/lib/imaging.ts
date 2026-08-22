@@ -17,6 +17,8 @@ export interface Analysis {
   grid: number;
   originX: number;
   originY: number;
+  /** тип кода: qr или datamatrix */
+  codeType: "qr" | "datamatrix";
 }
 
 export interface Params {
@@ -128,6 +130,7 @@ export function analyzeImage(source: HTMLImageElement | HTMLCanvasElement): Anal
     grid: 21,
     originX: 0,
     originY: 0,
+    codeType: "qr",
   };
   if (rowMax === 0 || colMax === 0) return empty;
 
@@ -155,31 +158,59 @@ export function analyzeImage(source: HTMLImageElement | HTMLCanvasElement): Anal
   const moduleSize = detectModuleSize(dark, w, h, bbox);
 
   const raw = (bbox.w / moduleSize + bbox.h / moduleSize) / 2;
-  const grid = Math.min(177, Math.max(21, Math.round((raw - 1) / 4) * 4 + 1));
+  // Определяем тип кода по структуре сетки
+  // DataMatrix имеет L-образный паттерн и размеры кратные модулям, QR имеет finder-паттерны 1:1:3:1:1
+  const dmSizes = [10, 12, 14, 16, 18, 20, 22, 24, 26, 32, 36, 40, 44, 48, 52, 64, 72, 80, 88, 96, 104, 120, 132, 144];
+  const isDataMatrix = dmSizes.some(s => Math.abs(raw - s) < 3);
+  const codeType: "qr" | "datamatrix" = isDataMatrix ? "datamatrix" : "qr";
+  
+  // Для DataMatrix используем точный размер из списка
+  const grid = isDataMatrix 
+    ? dmSizes.reduce((prev, curr) => Math.abs(curr - raw) < Math.abs(prev - raw) ? curr : prev)
+    : Math.min(177, Math.max(21, Math.round((raw - 1) / 4) * 4 + 1));
   const originX = bbox.x + (bbox.w - grid * moduleSize) / 2;
   const originY = bbox.y + (bbox.h - grid * moduleSize) / 2;
 
-  return { width: w, height: h, gray, threshold, dark, bbox, moduleSize, grid, originX, originY };
+  return { width: w, height: h, gray, threshold, dark, bbox, moduleSize, grid, originX, originY, codeType };
 }
 
 /**
- * Ищем строки/столбцы с рисунком finder-паттерна 1:1:3:1:1 —
+ * Ищем строки/столбцы с рисунком finder-паттерна 1:1:3:1:1 (QR) или L-образным паттерном (DataMatrix) —
  * по нему напрямую восстанавливается шаг модуля в пикселях фото.
  */
-function detectModuleSize(dark: Uint8Array, w: number, h: number, bbox: BBox): number {
+function detectModuleSize(dark: Uint8Array, w: number, h: number, bbox: BBox, codeType?: "qr" | "datamatrix"): number {
   const candidates: number[] = [];
-  const pattern = [1, 1, 3, 1, 1];
-
-  const checkRuns = (runs: number[]) => {
+  const qrPattern = [1, 1, 3, 1, 1];
+  
+  // Для DataMatrix ищем L-образный паттерн (две сплошные линии по краям)
+  const checkQRRuns = (runs: number[]) => {
     if (runs.length < 5) return;
     let total = 0;
     for (let k = 0; k < 5; k++) total += runs[k];
     const m = total / 7;
     if (m < 2 || total > Math.max(bbox.w, bbox.h) * 0.9) return;
     for (let k = 0; k < 5; k++) {
-      if (Math.abs(runs[k] - pattern[k] * m) > 0.5 * pattern[k] * m) return;
+      if (Math.abs(runs[k] - qrPattern[k] * m) > 0.5 * qrPattern[k] * m) return;
     }
     candidates.push(m);
+  };
+
+  // Для DataMatrix ищем длинные прямые линии (L-образный паттерн)
+  const checkDMRuns = (runs: number[]) => {
+    if (runs.length < 3) return;
+    // Ищем длинную серию чёрных пикселей (сплошная линия)
+    let maxRun = 0;
+    for (const r of runs) {
+      if (r > maxRun) maxRun = r;
+    }
+    if (maxRun > bbox.w * 0.3) {
+      // Нашли длинную линию, оцениваем модуль по количеству переходов
+      const totalLen = runs.reduce((a, b) => a + b, 0);
+      const avgModule = totalLen / (runs.length * 2);
+      if (avgModule > 1 && avgModule < bbox.w * 0.1) {
+        candidates.push(avgModule);
+      }
+    }
   };
 
   const rowStep = Math.max(1, Math.floor(bbox.h / 220));
@@ -187,9 +218,8 @@ function detectModuleSize(dark: Uint8Array, w: number, h: number, bbox: BBox): n
     const runs: number[] = [];
     let x = bbox.x;
     let cur = dark[y * w + x];
-    if (cur !== 1) continue;
     let count = 0;
-    while (x < bbox.x + bbox.w && runs.length < 7) {
+    while (x < bbox.x + bbox.w && runs.length < 15) {
       const v = dark[y * w + x];
       if (v === cur) count++;
       else {
@@ -200,7 +230,12 @@ function detectModuleSize(dark: Uint8Array, w: number, h: number, bbox: BBox): n
       x++;
     }
     runs.push(count);
-    checkRuns(runs);
+    if (codeType === "datamatrix") {
+      checkDMRuns(runs);
+    } else {
+      if (cur !== 1) continue;
+      checkQRRuns(runs);
+    }
   }
 
   const colStep = Math.max(1, Math.floor(bbox.w / 220));
@@ -208,9 +243,8 @@ function detectModuleSize(dark: Uint8Array, w: number, h: number, bbox: BBox): n
     const runs: number[] = [];
     let y = bbox.y;
     let cur = dark[y * w + x];
-    if (cur !== 1) continue;
     let count = 0;
-    while (y < bbox.y + bbox.h && runs.length < 7) {
+    while (y < bbox.y + bbox.h && runs.length < 15) {
       const v = dark[y * w + x];
       if (v === cur) count++;
       else {
@@ -221,7 +255,12 @@ function detectModuleSize(dark: Uint8Array, w: number, h: number, bbox: BBox): n
       y++;
     }
     runs.push(count);
-    checkRuns(runs);
+    if (codeType === "datamatrix") {
+      checkDMRuns(runs);
+    } else {
+      if (cur !== 1) continue;
+      checkQRRuns(runs);
+    }
   }
 
   const m = median(candidates);
