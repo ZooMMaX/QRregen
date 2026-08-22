@@ -1,6 +1,46 @@
-node_modules/
-.next/
-dist/
-dist-root/
-build/
+# Environment
+.env
+.env.local
+*.env.*
+
+# Logs and temp files
 *.log
+*.tmp
+*.swp
+
+# Editors
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.julia/
+zig*/
+julia-*/
+
+# Build artifacts
+dist/
+build/
+target/
+*.pyc
+*.class
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# System files
+.DS_Store
+Thumbs.db
+coverage/
+htmlcov/
+.coverage
+.gradle/
